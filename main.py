@@ -1,6 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.signal import savgol_filter
+from scipy.signal import savgol_filter, argrelextrema
+
+datasettoplot = 41
 
 # lambda to convert float with , as decimal point to real point
 commatodot = lambda s: float(s.decode("utf-8").replace(',', '.'))
@@ -32,7 +34,7 @@ tempdata = None
 vp = np.zeros((nom, 1))
 
 # go through all measurements
-for i in range(0, nom-1):
+for i in np.arange(0, nom):
     # not an untrusted measurement
     error = False
 
@@ -42,9 +44,12 @@ for i in range(0, nom-1):
     za = savgol_filter(np.gradient(ea), 21, 2)
 
     # this typically has a maximum, followed by a zero-crossing and a minimum
-    # we search for the zero-crossing between the global maximum and minimum
-    maximum = data[np.where(za == np.max(za)), 0, i]
-    minimum = data[np.where(za == np.min(za)), 0, i]
+    # we search for the zero-crossing between the global maximum and minimum of the data, but not within 10% of the
+    # border!
+    tenpercent = int(np.round(lines/10))
+
+    maximum = data[np.where(za == np.max(za[tenpercent:-tenpercent])), 0, i]
+    minimum = data[np.where(za == np.min(za[tenpercent:-tenpercent])), 0, i]
 
     # get the data points between max and min
     fitrangex = data[np.where((data[:, 0, i] >= maximum) & (data[:, 0, i] <= minimum)), 0, i][1]
@@ -55,8 +60,11 @@ for i in range(0, nom-1):
         # fit the range between max and min with a third order polynomial
         linfit = np.poly1d(np.polyfit(fitrangex, fitrangey, 3))
         linfitx = np.linspace(maximum[0], minimum[0], 100)
-    except:
-        print('Fehler in Iteration {}'.format(i))
+    except Exception as e:
+        print('Fehler in Iteration {}:'.format(i))
+        print(e)
+        print('Minimum of second derivative: {}'.format(minimum))
+        print('Maximum of second derivative: {}'.format(maximum))
         error = True
 
     # if we didn't mark it as untrusted, we take the zero-crossing
@@ -68,8 +76,10 @@ for i in range(0, nom-1):
             if (zerocrossing > maximum) & (zerocrossing < minimum):
                 vp[i] = zerocrossing
 
+    if i == datasettoplot-1:
+        plt.plot(linfitx, linfit(linfitx))
+        plt.plot(data[:, 0, i], data[:, 1, i])
+        plt.plot(data[:, 0, i], za)
+
 print(vp)
-#plt.plot(linfitx, linfit(linfitx))
-#plt.plot(data[:, 0, 40], data[:, 1, 40])
-#plt.plot(data[:, 0, 40], za)
-#plt.show()
+plt.show()
