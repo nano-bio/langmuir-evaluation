@@ -22,9 +22,9 @@ lines = int(tempdata.shape[0] / nom)
 
 # create new array
 data = np.zeros((lines, 3, nom))
-for i in range(1, nom):
+for i in np.arange(0, nom):
     # copy from temporary data, but delete first column
-    data[:, :, i - 1] = np.delete(tempdata[np.where(tempdata[:, 0] == i)], 0, 1)
+    data[:, :, i] = np.delete(tempdata[np.where(tempdata[:, 0] == i+1)], 0, 1)
 
 # set tempdata to None so the GC can free memory
 tempdata = None
