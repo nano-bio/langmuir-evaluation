@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.signal import savgol_filter, argrelextrema
 
-datasettoplot = 41
+datasettoplot = 8
 
 # lambda to convert float with , as decimal point to real point
 commatodot = lambda s: float(s.decode("utf-8").replace(',', '.'))
@@ -21,17 +21,27 @@ if tempdata.shape[0] % nom != 0:
 lines = int(tempdata.shape[0] / nom)
 
 # create new array
-data = np.zeros((lines, 3, nom))
+data = np.zeros((lines-1, 3, nom))
+tempdata2 = np.zeros((lines, 3, nom))
 for i in np.arange(0, nom):
     # copy from temporary data, but delete first column
-    data[:, :, i] = np.delete(tempdata[np.where(tempdata[:, 0] == i+1)], 0, 1)
+    tempdata2[:, :, i] = np.delete(tempdata[np.where(tempdata[:, 0] == i+1)], 0, 1)
+
+    # also delete first data point, because it is an artifact
+    data[:, :, i] = np.delete(tempdata2[:,:,i], (0), axis=0)
 
 # set tempdata to None so the GC can free memory
 tempdata = None
+tempdata2 = None
 
-# calculate plasma potential for each measurement
+# prellocate some arrays / lists for data to be calculated
+
 # preallocate array for the plasma potentials
 vp = np.zeros((nom, 1))
+# list for 1st order polynomial objects for ion saturation current
+ionsat = [None]*nom
+# numpy array for ion saturation current subtracted data
+data_is_subtracted = np.zeros((lines-1, nom))
 
 # go through all measurements
 for i in np.arange(0, nom):
@@ -58,8 +68,8 @@ for i in np.arange(0, nom):
     # sometimes we hit the wrong interval. don't throw errors in that case and mark the measurement as untrusted
     try:
         # fit the range between max and min with a third order polynomial
-        linfit = np.poly1d(np.polyfit(fitrangex, fitrangey, 3))
-        linfitx = np.linspace(maximum[0], minimum[0], 100)
+        vpfit = np.poly1d(np.polyfit(fitrangex, fitrangey, 3))
+        vpfitx = np.linspace(maximum[0], minimum[0], 100)
     except Exception as e:
         print('Fehler in Iteration {}:'.format(i))
         print(e)
@@ -72,14 +82,37 @@ for i in np.arange(0, nom):
         vp[i] = None
     else:
         # if trusted, we take the zero crossing between max and min.
-        for zerocrossing in linfit.r:
+        for zerocrossing in vpfit.r:
             if (zerocrossing > maximum) & (zerocrossing < minimum):
                 vp[i] = zerocrossing
 
+    # fit a linear function between -40 to -10 (subtract ion saturation current)
+
+    # get the data points between max and min
+    fitrangex = data[np.where((data[:, 0, i] >= -40) & (data[:, 0, i] <= -10)), 0, i][0]
+    fitrangey = data[np.where((data[:, 0, i] >= -40) & (data[:, 0, i] <= -10)), 1, i][0]
+    ionsat[i] = np.poly1d(np.polyfit(fitrangex, fitrangey, 1))
+    ionsatx = np.linspace(-40, -10, 100)
+
+    # create a new dataset, where we substract the ion saturation current
+    def subtract_ion_sat_current(a):
+        return data[np.where(data[:,0,i] == a), 1, i]-ionsat[i](a)
+
+    data_is_subtracted[:, i] = np.apply_along_axis(subtract_ion_sat_current, 0, data[:, 0, i])
+
+    # plot a dataset
     if i == datasettoplot-1:
-        plt.plot(linfitx, linfit(linfitx))
-        plt.plot(data[:, 0, i], data[:, 1, i])
-        plt.plot(data[:, 0, i], za)
+        # plot the polynomial approximation to the second derivative between the maxima
+        vpplot, = plt.plot(vpfitx, vpfit(vpfitx))
+        # plot the linear ion saturation current fit
+        ionsatplot, = plt.plot(ionsatx, ionsat[i](ionsatx))
+        # plot the data
+        dataplot, = plt.plot(data[:, 0, i], data[:, 1, i])
+        # plot the ion saturation current corrected data
+        data_is_subtractedplot, = plt.plot(data[:, 0, i], data_is_subtracted[:, i])
+        # plot second derivative
+        zaplot, = plt.plot(data[:, 0, i], za)
+        plt.legend([dataplot, zaplot, vpplot, ionsatplot, data_is_subtractedplot], ['Data points', 'Approx. to second deriv.', 'Second derivative', 'Ion saturation current fit', 'Data points corr. by ion sat.'])
 
 print(vp)
 plt.show()
