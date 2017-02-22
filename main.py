@@ -1,15 +1,51 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.signal import savgol_filter, argrelextrema
+from scipy.signal import savgol_filter
+from scipy.constants import Boltzmann, elementary_charge, pi, electron_mass
+from scipy import optimize
 
-datasettoplot = 8
+datasettoplot = 4
+probe_area = 0.0001
+
+"""
+Starting from here we set up some helper functions
+
+"""
+
+def fromxongreaterthanzero(array):
+    """
+    This funtion returns an array of booleans that indicate, whether all following data points are above zero. Example:
+    [0 -1 -2 -3 -2 -1 0 1 2 1 0 -1 0 1 2 3 4 5]
+    returns
+    [F F F F F F F F F F F T T T T T T]
+    :param array:
+    :return: array with booleans
+    """
+    returnarray = [False] * array.shape[0]
+    for i in np.arange(0, array.shape[0]):
+        returnarray[i] = np.greater(array[i:], 0).all()
+    return returnarray
 
 # lambda to convert float with , as decimal point to real point
 commatodot = lambda s: float(s.decode("utf-8").replace(',', '.'))
 
+# lambda that corresponds to complete current function as in http://dx.doi.org/10.1116/1.577344 eq. 1
+ic_func = lambda p, x:  p[0]*np.exp(elementary_charge*(x-vp[i])/(Boltzmann*p[1]))+p[2]*np.exp(elementary_charge*(x-vp[i])/(Boltzmann*p[3]))
+
+"""
+p[0] = electron current cold
+p[1] = electron temperature cold
+p[2] = electron current hot
+p[3] = electron temperature hot
+"""
+
+"""
+From here on, the routine starts
+"""
+
 # read textfile to temporary array using only 4 columns and the above lambda
 tempdata = np.loadtxt('testdata.txt', usecols=(0, 3, 4, 5), skiprows=7,
-                      converters={0: commatodot, 3: commatodot, 4: commatodot, 5: commatodot})
+                      converters={0: commatodot, 3: commatodot, 4: commatodot, 5: commatodot}, dtype=np.float64)
 
 # number of measurements = highest value of first column
 nom = int(np.amax(tempdata, axis=0)[0])
@@ -21,8 +57,8 @@ if tempdata.shape[0] % nom != 0:
 lines = int(tempdata.shape[0] / nom)
 
 # create new array
-data = np.zeros((lines-1, 3, nom))
-tempdata2 = np.zeros((lines, 3, nom))
+data = np.zeros((lines-1, 3, nom), dtype=np.float64)
+tempdata2 = np.zeros((lines, 3, nom), dtype=np.float64)
 for i in np.arange(0, nom):
     # copy from temporary data, but delete first column
     tempdata2[:, :, i] = np.delete(tempdata[np.where(tempdata[:, 0] == i+1)], 0, 1)
@@ -37,11 +73,13 @@ tempdata2 = None
 # prellocate some arrays / lists for data to be calculated
 
 # preallocate array for the plasma potentials
-vp = np.zeros((nom, 1))
+vp = np.zeros((nom, 1), dtype=np.float64)
 # list for 1st order polynomial objects for ion saturation current
 ionsat = [None]*nom
 # numpy array for ion saturation current subtracted data
-data_is_subtracted = np.zeros((lines-1, nom))
+data_is_subtracted = np.zeros((lines-1, nom), dtype=np.float64)
+# preallocate array for electron temperatures (1 T_hot, 2 T_cold, 3 + 4 electron densities
+temperatures = np.zeros((nom, 4), dtype=np.float64)
 
 # go through all measurements
 for i in np.arange(0, nom):
@@ -100,6 +138,37 @@ for i in np.arange(0, nom):
 
     data_is_subtracted[:, i] = np.apply_along_axis(subtract_ion_sat_current, 0, data[:, 0, i])
 
+    # starting from here we fit electron temperatures and currents
+    errfunc = lambda p, x, y: ic_func(p, x) - y
+
+    # starting values
+    p = [0]*4
+    p[0] = 1
+    p[1] = 29000 # 2.5 eV in K
+    p[2] = 1
+    p[3] = 145100 # 12.5 eV in K
+
+    # select the data points to be fitted. three conditions:
+    # 1) ion saturation corrected current has to be above zero (above floating potential)
+    # 2) only datapoints below the plasma potential
+    # 3) using the above function fromxongreaterthanzero we avoid datapoints above zero which happened due to the
+    # correction
+
+    x = data[np.where((data_is_subtracted[:, i] >= 0) & (data[:, 0, i] <= vp[i]) & fromxongreaterthanzero(data_is_subtracted[:, i])), 0, i][0]
+    y = data_is_subtracted[np.where((data_is_subtracted[:, i] >= 0) & (data[:, 0, i] <= vp[i]) & fromxongreaterthanzero(data_is_subtracted[:, i])), i][0]
+
+    # fit the data
+    res = optimize.leastsq(errfunc, np.asarray(p, dtype=np.float64), args=(x, y), full_output=True)
+    (p1, pcov, infodict, errmsg, ier) = res
+
+    # save electron temperatures
+    tcold = p1[1]
+    thot = p1[3]
+    ncold = p1[0]/(elementary_charge*probe_area*np.sqrt(Boltzmann*tcold/(2*pi*electron_mass)))
+    nhot = p1[2]/(elementary_charge*probe_area*np.sqrt(Boltzmann*thot/(2*pi*electron_mass)))
+
+    temperatures[i, :] = [thot, tcold, nhot, ncold]
+
     # plot a dataset
     if i == datasettoplot-1:
         # plot the polynomial approximation to the second derivative between the maxima
@@ -112,7 +181,10 @@ for i in np.arange(0, nom):
         data_is_subtractedplot, = plt.plot(data[:, 0, i], data_is_subtracted[:, i])
         # plot second derivative
         zaplot, = plt.plot(data[:, 0, i], za)
-        plt.legend([dataplot, zaplot, vpplot, ionsatplot, data_is_subtractedplot], ['Data points', 'Approx. to second deriv.', 'Second derivative', 'Ion saturation current fit', 'Data points corr. by ion sat.'])
+        # plot points used for electron temperature fitting
+        plt.plot(x,y,'kx')
+        plt.legend([dataplot, zaplot, vpplot, ionsatplot, data_is_subtractedplot], ['Data points', 'Second derivative', 'Approx. to second deriv.', 'Ion saturation current fit', 'Data points corr. by ion sat.'])
 
 print(vp)
+print(temperatures)
 plt.show()
