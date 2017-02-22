@@ -12,7 +12,7 @@ parser = argparse.ArgumentParser(description="Evaluation script for langmuir mea
 parser.add_argument("--filename", help="Specify a filename to be evaluated")
 parser.add_argument("--plot", help="Specify a datapoint to be plotted in detail")
 
-#parse it
+# parse it
 args = parser.parse_args()
 
 try:
@@ -31,6 +31,7 @@ probe_area = 0.0001
 Starting from here we set up some helper functions
 """
 
+
 def fromxongreaterthanzero(array):
     """
     This funtion returns an array of booleans that indicate, whether all following data points are above zero. Example:
@@ -45,11 +46,13 @@ def fromxongreaterthanzero(array):
         returnarray[i] = np.greater(array[i:], 0).all()
     return returnarray
 
+
 # lambda to convert float with , as decimal point to real point
 commatodot = lambda s: float(s.decode("utf-8").replace(',', '.'))
 
 # lambda that corresponds to complete current function as in http://dx.doi.org/10.1116/1.577344 eq. 1
-ic_func = lambda p, x:  p[0]*np.exp(elementary_charge*(x-vp[i])/(Boltzmann*p[1]))+p[2]*np.exp(elementary_charge*(x-vp[i])/(Boltzmann*p[3]))
+ic_func = lambda p, x: p[0] * np.exp(elementary_charge * (x - vp[i]) / (Boltzmann * p[1])) + p[2] * np.exp(
+    elementary_charge * (x - vp[i]) / (Boltzmann * p[3]))
 
 """
 p[0] = electron current cold
@@ -76,14 +79,14 @@ if tempdata.shape[0] % nom != 0:
 lines = int(tempdata.shape[0] / nom)
 
 # create new array
-data = np.zeros((lines-1, 3, nom), dtype=np.float64)
+data = np.zeros((lines - 1, 3, nom), dtype=np.float64)
 tempdata2 = np.zeros((lines, 3, nom), dtype=np.float64)
 for i in np.arange(0, nom):
     # copy from temporary data, but delete first column
-    tempdata2[:, :, i] = np.delete(tempdata[np.where(tempdata[:, 0] == i+1)], 0, 1)
+    tempdata2[:, :, i] = np.delete(tempdata[np.where(tempdata[:, 0] == i + 1)], 0, 1)
 
     # also delete first data point, because it is an artifact
-    data[:, :, i] = np.delete(tempdata2[:,:,i], (0), axis=0)
+    data[:, :, i] = np.delete(tempdata2[:, :, i], (0), axis=0)
 
 # set tempdata to None so the GC can free memory
 tempdata = None
@@ -94,9 +97,9 @@ tempdata2 = None
 # preallocate array for the plasma potentials
 vp = np.zeros((nom, 1), dtype=np.float64)
 # list for 1st order polynomial objects for ion saturation current
-ionsat = [None]*nom
+ionsat = [None] * nom
 # numpy array for ion saturation current subtracted data
-data_is_subtracted = np.zeros((lines-1, nom), dtype=np.float64)
+data_is_subtracted = np.zeros((lines - 1, nom), dtype=np.float64)
 # preallocate array for electron temperatures (1 T_hot, 2 T_cold, 3 + 4 electron densities
 temperatures = np.zeros((nom, 4), dtype=np.float64)
 
@@ -113,7 +116,7 @@ for i in np.arange(0, nom):
     # this typically has a maximum, followed by a zero-crossing and a minimum
     # we search for the zero-crossing between the global maximum and minimum of the data, but not within 10% of the
     # border!
-    tenpercent = int(np.round(lines/10))
+    tenpercent = int(np.round(lines / 10))
 
     maximum = data[np.where(za == np.max(za[tenpercent:-tenpercent])), 0, i]
     minimum = data[np.where(za == np.min(za[tenpercent:-tenpercent])), 0, i]
@@ -151,9 +154,11 @@ for i in np.arange(0, nom):
     ionsat[i] = np.poly1d(np.polyfit(fitrangex, fitrangey, 1))
     ionsatx = np.linspace(-40, -10, 100)
 
+
     # create a new dataset, where we substract the ion saturation current
     def subtract_ion_sat_current(a):
-        return data[np.where(data[:,0,i] == a), 1, i]-ionsat[i](a)
+        return data[np.where(data[:, 0, i] == a), 1, i] - ionsat[i](a)
+
 
     data_is_subtracted[:, i] = np.apply_along_axis(subtract_ion_sat_current, 0, data[:, 0, i])
 
@@ -161,11 +166,11 @@ for i in np.arange(0, nom):
     errfunc = lambda p, x, y: ic_func(p, x) - y
 
     # starting values
-    p = [0]*4
+    p = [0] * 4
     p[0] = 1
-    p[1] = 29000 # 2.5 eV in K
+    p[1] = 29000  # 2.5 eV in K
     p[2] = 1
-    p[3] = 145100 # 12.5 eV in K
+    p[3] = 145100  # 12.5 eV in K
 
     # select the data points to be fitted. three conditions:
     # 1) ion saturation corrected current has to be above zero (above floating potential)
@@ -173,24 +178,33 @@ for i in np.arange(0, nom):
     # 3) using the above function fromxongreaterthanzero we avoid datapoints above zero which happened due to the
     # correction
 
-    x = data[np.where((data_is_subtracted[:, i] >= 0) & (data[:, 0, i] <= vp[i]) & fromxongreaterthanzero(data_is_subtracted[:, i])), 0, i][0]
-    y = data_is_subtracted[np.where((data_is_subtracted[:, i] >= 0) & (data[:, 0, i] <= vp[i]) & fromxongreaterthanzero(data_is_subtracted[:, i])), i][0]
+    x = data[np.where((data_is_subtracted[:, i] >= 0) & (data[:, 0, i] <= vp[i]) & fromxongreaterthanzero(
+        data_is_subtracted[:, i])), 0, i][0]
+    y = data_is_subtracted[np.where((data_is_subtracted[:, i] >= 0) & (data[:, 0, i] <= vp[i]) & fromxongreaterthanzero(
+        data_is_subtracted[:, i])), i][0]
 
     # fit the data
     res = optimize.leastsq(errfunc, np.asarray(p, dtype=np.float64), args=(x, y), full_output=True)
     (p1, pcov, infodict, errmsg, ier) = res
 
-    # save electron temperatures
+    # inspect and save electron temperatures
+    # if we happen to have only one electron temperature in the measurement, the fit converges to almost the same
+    # electron temperature for thot and tcold. hence we check, whether they are within 2% of one another and if so,
+    # we add the currents (as they are the same and save it as [t|n]cold
     tcold = p1[1]
     thot = p1[3]
-    ncold = p1[0]/(elementary_charge*probe_area*np.sqrt(Boltzmann*tcold/(2*pi*electron_mass)))
-    nhot = p1[2]/(elementary_charge*probe_area*np.sqrt(Boltzmann*thot/(2*pi*electron_mass)))
+    ncold = p1[0] / (elementary_charge * probe_area * np.sqrt(Boltzmann * tcold / (2 * pi * electron_mass)))
+    nhot = p1[2] / (elementary_charge * probe_area * np.sqrt(Boltzmann * thot / (2 * pi * electron_mass)))
+    if (thot / tcold < 1.02) & (thot / tcold > 0.98):
+        thot = None
+        ncold = ncold + nhot
+        nhot = None
 
     temperatures[i, :] = [thot, tcold, nhot, ncold]
 
     # plot a dataset
     if datasettoplot:
-        if datasettoplot-1 == i:
+        if datasettoplot - 1 == i:
             # plot the polynomial approximation to the second derivative between the maxima
             vpplot, = plt.plot(vpfitx, vpfit(vpfitx))
             # plot the linear ion saturation current fit
@@ -202,9 +216,42 @@ for i in np.arange(0, nom):
             # plot second derivative
             zaplot, = plt.plot(data[:, 0, i], za)
             # plot points used for electron temperature fitting
-            plt.plot(x,y,'kx')
-            plt.legend([dataplot, zaplot, vpplot, ionsatplot, data_is_subtractedplot], ['Data points', 'Second derivative', 'Approx. to second deriv.', 'Ion saturation current fit', 'Data points corr. by ion sat.'])
+            fitpointsplot, = plt.plot(x, y, 'kx')
+            plt.legend([dataplot, zaplot, vpplot, ionsatplot, data_is_subtractedplot, fitpointsplot],
+                       ['Data points', 'Second derivative', 'Approx. to second deriv.', 'Ion saturation current fit',
+                        'Data points corr. by ion sat.', 'Data points used for fitting'])
 
-print(vp)
-print(temperatures)
+# export all data to a file
+export_values = np.concatenate((np.arange(1, 42).reshape((41, 1)), vp, temperatures), axis=1)
+np.savetxt('results.txt',
+           export_values,
+           fmt=('%d', '%10.6f', '%10.2f', '%10.2f', '%1.4e', '%1.4e'),
+           delimiter='\t',
+           header='Measurement\tPlasma Potential\tT_hot\tT_cold\tn_hot\tn_cold')
+
+# make a nice overview plot using the export_values array
+fig2 = plt.figure()
+ax1 = fig2.add_subplot(221)
+ax1.plot(export_values[:,0], export_values[:,1], 'x')
+ax1.set_title('Plasma Potential')
+ax1.set_xlabel('Measurement')
+ax1.set_ylabel('V_p [V]')
+
+ax2 = fig2.add_subplot(222)
+thotplot, = ax2.plot(export_values[:,0], export_values[:,2], 'x')
+tcoldplot, = ax2.plot(export_values[:,0], export_values[:,3], 'x')
+ax2.set_title('Electron Temperature')
+ax2.set_xlabel('Measurement')
+ax2.set_ylabel('T_e [K]')
+ax2.set_ylim([0, 150000])
+ax2.legend([thotplot, tcoldplot], ['Hot Electrons', 'Cold Electrons'])
+
+ax3 = fig2.add_subplot(223)
+nhotplot, = ax3.plot(export_values[:,0], export_values[:,4], 'x')
+ncoldplot, = ax3.plot(export_values[:,0], export_values[:,5], 'x')
+ax3.set_title('Electron Density')
+ax3.set_xlabel('Measurement')
+ax3.set_ylabel('n_e [nofuckinidea]')
+ax3.legend([nhotplot, ncoldplot], ['Hot Electrons', 'Cold Electrons'])
+
 plt.show()
