@@ -3,13 +3,32 @@ import matplotlib.pyplot as plt
 from scipy.signal import savgol_filter
 from scipy.constants import Boltzmann, elementary_charge, pi, electron_mass
 from scipy import optimize
+import argparse
 
-datasettoplot = 4
+# using the argparse module to make use of command line options
+parser = argparse.ArgumentParser(description="Evaluation script for langmuir measurements")
+
+# add commandline options
+parser.add_argument("--filename", help="Specify a filename to be evaluated")
+parser.add_argument("--plot", help="Specify a datapoint to be plotted in detail")
+
+#parse it
+args = parser.parse_args()
+
+try:
+    datasettoplot = int(args.plot)
+except TypeError:
+    datasettoplot = None
+
+if args.filename:
+    filename = args.filename
+else:
+    filename = 'testdata.txt'
+
 probe_area = 0.0001
 
 """
 Starting from here we set up some helper functions
-
 """
 
 def fromxongreaterthanzero(array):
@@ -44,7 +63,7 @@ From here on, the routine starts
 """
 
 # read textfile to temporary array using only 4 columns and the above lambda
-tempdata = np.loadtxt('testdata.txt', usecols=(0, 3, 4, 5), skiprows=7,
+tempdata = np.loadtxt(filename, usecols=(0, 3, 4, 5), skiprows=7,
                       converters={0: commatodot, 3: commatodot, 4: commatodot, 5: commatodot}, dtype=np.float64)
 
 # number of measurements = highest value of first column
@@ -170,20 +189,21 @@ for i in np.arange(0, nom):
     temperatures[i, :] = [thot, tcold, nhot, ncold]
 
     # plot a dataset
-    if i == datasettoplot-1:
-        # plot the polynomial approximation to the second derivative between the maxima
-        vpplot, = plt.plot(vpfitx, vpfit(vpfitx))
-        # plot the linear ion saturation current fit
-        ionsatplot, = plt.plot(ionsatx, ionsat[i](ionsatx))
-        # plot the data
-        dataplot, = plt.plot(data[:, 0, i], data[:, 1, i])
-        # plot the ion saturation current corrected data
-        data_is_subtractedplot, = plt.plot(data[:, 0, i], data_is_subtracted[:, i])
-        # plot second derivative
-        zaplot, = plt.plot(data[:, 0, i], za)
-        # plot points used for electron temperature fitting
-        plt.plot(x,y,'kx')
-        plt.legend([dataplot, zaplot, vpplot, ionsatplot, data_is_subtractedplot], ['Data points', 'Second derivative', 'Approx. to second deriv.', 'Ion saturation current fit', 'Data points corr. by ion sat.'])
+    if datasettoplot:
+        if datasettoplot-1 == i:
+            # plot the polynomial approximation to the second derivative between the maxima
+            vpplot, = plt.plot(vpfitx, vpfit(vpfitx))
+            # plot the linear ion saturation current fit
+            ionsatplot, = plt.plot(ionsatx, ionsat[i](ionsatx))
+            # plot the data
+            dataplot, = plt.plot(data[:, 0, i], data[:, 1, i])
+            # plot the ion saturation current corrected data
+            data_is_subtractedplot, = plt.plot(data[:, 0, i], data_is_subtracted[:, i])
+            # plot second derivative
+            zaplot, = plt.plot(data[:, 0, i], za)
+            # plot points used for electron temperature fitting
+            plt.plot(x,y,'kx')
+            plt.legend([dataplot, zaplot, vpplot, ionsatplot, data_is_subtractedplot], ['Data points', 'Second derivative', 'Approx. to second deriv.', 'Ion saturation current fit', 'Data points corr. by ion sat.'])
 
 print(vp)
 print(temperatures)
