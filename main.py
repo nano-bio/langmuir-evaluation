@@ -5,34 +5,44 @@ from scipy.constants import Boltzmann, elementary_charge, pi, electron_mass
 from scipy import optimize
 import argparse
 
+# some general options
+
+# area of the langmuir probe
+probe_area = 0.000001  # 1mm^2
+# percentage of minimum electron temperature difference to consider them as two populations
+hot_cold_diff = 0.05
+
 # using the argparse module to make use of command line options
 parser = argparse.ArgumentParser(description="Evaluation script for langmuir measurements")
 
 # add commandline options
-parser.add_argument("--filename", help="Specify a filename to be evaluated")
-parser.add_argument("--plot", help="Specify a datapoint to be plotted in detail")
+parser.add_argument("--filename",
+                    "-f",
+                    help="Specify a filename to be evaluated. Defaults to testdata.txt",
+                    default='testdata.txt')
+parser.add_argument("--plot",
+                    "-p",
+                    help="Specify an angle to be plotted in detail",
+                    default=None,
+                    type=int)
+parser.add_argument("--output",
+                    "-o",
+                    help="Specify a filename for the output data. Defaults to results.txt",
+                    default='results.txt')
 
 # parse it
 args = parser.parse_args()
 
-try:
-    datasettoplot = int(args.plot)
-except TypeError:
-    datasettoplot = None
-
-if args.filename:
-    filename = args.filename
-else:
-    filename = 'testdata.txt'
-
-probe_area = 0.0001
+angle_to_plot = int(args.plot)
+filename = args.filename
+output = args.output
 
 """
 Starting from here we set up some helper functions
 """
 
 
-def fromxongreaterthanzero(array):
+def from_x_on_greater_than_zero(array):
     """
     This funtion returns an array of booleans that indicate, whether all following data points are above zero. Example:
     [0 -1 -2 -3 -2 -1 0 1 2 1 0 -1 0 1 2 3 4 5]
@@ -48,7 +58,7 @@ def fromxongreaterthanzero(array):
 
 
 # lambda to convert float with , as decimal point to real point
-commatodot = lambda s: float(s.decode("utf-8").replace(',', '.'))
+comma_to_dot = lambda s: float(s.decode("utf-8").replace(',', '.'))
 
 # lambda that corresponds to complete current function as in http://dx.doi.org/10.1116/1.577344 eq. 1
 ic_func = lambda p, x: p[0] * np.exp(elementary_charge * (x - vp[i]) / (Boltzmann * p[1])) + p[2] * np.exp(
@@ -67,14 +77,14 @@ From here on, the routine starts
 
 # read textfile to temporary array using only 4 columns and the above lambda
 tempdata = np.loadtxt(filename, usecols=(0, 3, 4, 5), skiprows=7,
-                      converters={0: commatodot, 3: commatodot, 4: commatodot, 5: commatodot}, dtype=np.float64)
+                      converters={0: comma_to_dot, 3: comma_to_dot, 4: comma_to_dot, 5: comma_to_dot}, dtype=np.float64)
 
 # number of measurements = highest value of first column
 nom = int(np.amax(tempdata, axis=0)[0])
 
-# check whether all measurements have the same number of datapoints
+# check whether all measurements have the same number of data points
 if tempdata.shape[0] % nom != 0:
-    quit('Not an equal amount of datapoints for all measurements')
+    quit('Not an equal amount of data points for all measurements')
 
 lines = int(tempdata.shape[0] / nom)
 
@@ -86,7 +96,7 @@ for i in np.arange(0, nom):
     tempdata2[:, :, i] = np.delete(tempdata[np.where(tempdata[:, 0] == i + 1)], 0, 1)
 
     # also delete first data point, because it is an artifact
-    data[:, :, i] = np.delete(tempdata2[:, :, i], (0), axis=0)
+    data[:, :, i] = np.delete(tempdata2[:, :, i], 0, axis=0)
 
 # set tempdata to None so the GC can free memory
 tempdata = None
@@ -175,12 +185,12 @@ for i in np.arange(0, nom):
     # select the data points to be fitted. three conditions:
     # 1) ion saturation corrected current has to be above zero (above floating potential)
     # 2) only datapoints below the plasma potential
-    # 3) using the above function fromxongreaterthanzero we avoid datapoints above zero which happened due to the
+    # 3) using the above function from_x_on_greater_than_zero we avoid datapoints above zero which happened due to the
     # correction
 
-    x = data[np.where((data_is_subtracted[:, i] >= 0) & (data[:, 0, i] <= vp[i]) & fromxongreaterthanzero(
+    x = data[np.where((data_is_subtracted[:, i] >= 0) & (data[:, 0, i] <= vp[i]) & from_x_on_greater_than_zero(
         data_is_subtracted[:, i])), 0, i][0]
-    y = data_is_subtracted[np.where((data_is_subtracted[:, i] >= 0) & (data[:, 0, i] <= vp[i]) & fromxongreaterthanzero(
+    y = data_is_subtracted[np.where((data_is_subtracted[:, i] >= 0) & (data[:, 0, i] <= vp[i]) & from_x_on_greater_than_zero(
         data_is_subtracted[:, i])), i][0]
 
     # fit the data
@@ -195,35 +205,47 @@ for i in np.arange(0, nom):
     thot = p1[3]
     ncold = p1[0] / (elementary_charge * probe_area * np.sqrt(Boltzmann * tcold / (2 * pi * electron_mass)))
     nhot = p1[2] / (elementary_charge * probe_area * np.sqrt(Boltzmann * thot / (2 * pi * electron_mass)))
-    if (thot / tcold < 1.02) & (thot / tcold > 0.98):
+
+    # check whether they switches places
+    if tcold > thot:
+        tcold, thot = thot, tcold
+        ncold, nhot = nhot, ncold
+
+    if (thot / tcold < (1 + hot_cold_diff)) & (thot / tcold > (1 - hot_cold_diff)):
         thot = None
-        ncold = ncold + nhot
+        ncold += nhot
         nhot = None
 
     temperatures[i, :] = [thot, tcold, nhot, ncold]
 
     # plot a dataset
-    if datasettoplot:
-        if datasettoplot - 1 == i:
+    if angle_to_plot:
+        if angle_to_plot - 1 == i:
+            fig1 = plt.figure()
+            ax0 = fig1.add_subplot(1, 1, 1)
             # plot the polynomial approximation to the second derivative between the maxima
-            vpplot, = plt.plot(vpfitx, vpfit(vpfitx))
+            vpplot, = ax0.plot(vpfitx, vpfit(vpfitx))
             # plot the linear ion saturation current fit
-            ionsatplot, = plt.plot(ionsatx, ionsat[i](ionsatx))
+            ionsatplot, = ax0.plot(ionsatx, ionsat[i](ionsatx))
             # plot the data
-            dataplot, = plt.plot(data[:, 0, i], data[:, 1, i])
+            dataplot, = ax0.plot(data[:, 0, i], data[:, 1, i])
             # plot the ion saturation current corrected data
-            data_is_subtractedplot, = plt.plot(data[:, 0, i], data_is_subtracted[:, i])
+            data_is_subtractedplot, = ax0.plot(data[:, 0, i], data_is_subtracted[:, i])
             # plot second derivative
-            zaplot, = plt.plot(data[:, 0, i], za)
+            zaplot, = ax0.plot(data[:, 0, i], za)
             # plot points used for electron temperature fitting
-            fitpointsplot, = plt.plot(x, y, 'kx')
-            plt.legend([dataplot, zaplot, vpplot, ionsatplot, data_is_subtractedplot, fitpointsplot],
+            fitpointsplot, = ax0.plot(x, y, 'kx')
+            ax0.legend([dataplot, zaplot, vpplot, ionsatplot, data_is_subtractedplot, fitpointsplot],
                        ['Data points', 'Second derivative', 'Approx. to second deriv.', 'Ion saturation current fit',
                         'Data points corr. by ion sat.', 'Data points used for fitting'])
+            ax0.set_title('I-V characteristic for angle {}'.format(angle_to_plot))
+            ax0.set_xlabel('Probe Voltage (V)')
+            ax0.set_ylabel('Current (mA)')
+            fig1.tight_layout()
 
 # export all data to a file
 export_values = np.concatenate((np.arange(1, 42).reshape((41, 1)), vp, temperatures), axis=1)
-np.savetxt('results.txt',
+np.savetxt(output,
            export_values,
            fmt=('%d', '%10.6f', '%10.2f', '%10.2f', '%1.4e', '%1.4e'),
            delimiter='\t',
@@ -232,26 +254,27 @@ np.savetxt('results.txt',
 # make a nice overview plot using the export_values array
 fig2 = plt.figure()
 ax1 = fig2.add_subplot(221)
-ax1.plot(export_values[:,0], export_values[:,1], 'x')
+ax1.plot(export_values[:, 0], export_values[:, 1], 'x')
 ax1.set_title('Plasma Potential')
-ax1.set_xlabel('Measurement')
-ax1.set_ylabel('V_p [V]')
+ax1.set_xlabel('Angle')
+ax1.set_ylabel(r'$V_p$ (V)')
 
 ax2 = fig2.add_subplot(222)
-thotplot, = ax2.plot(export_values[:,0], export_values[:,2], 'x')
-tcoldplot, = ax2.plot(export_values[:,0], export_values[:,3], 'x')
+thotplot, = ax2.plot(export_values[:, 0], export_values[:, 2], 'x')
+tcoldplot, = ax2.plot(export_values[:, 0], export_values[:, 3], 'x')
 ax2.set_title('Electron Temperature')
-ax2.set_xlabel('Measurement')
-ax2.set_ylabel('T_e [K]')
+ax2.set_xlabel('Angle')
+ax2.set_ylabel(r'$T_e$ (K)')
 ax2.set_ylim([0, 150000])
 ax2.legend([thotplot, tcoldplot], ['Hot Electrons', 'Cold Electrons'])
 
 ax3 = fig2.add_subplot(223)
-nhotplot, = ax3.plot(export_values[:,0], export_values[:,4], 'x')
-ncoldplot, = ax3.plot(export_values[:,0], export_values[:,5], 'x')
+nhotplot, = ax3.plot(export_values[:, 0], export_values[:, 4], 'x')
+ncoldplot, = ax3.plot(export_values[:, 0], export_values[:, 5], 'x')
 ax3.set_title('Electron Density')
-ax3.set_xlabel('Measurement')
-ax3.set_ylabel('n_e [nofuckinidea]')
+ax3.set_xlabel('Angle')
+ax3.set_ylabel(r'$n_e$ [nofuckinidea]')
 ax3.legend([nhotplot, ncoldplot], ['Hot Electrons', 'Cold Electrons'])
 
+fig2.tight_layout()
 plt.show()
