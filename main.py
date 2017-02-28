@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 from scipy.signal import savgol_filter
 from scipy.constants import Boltzmann, elementary_charge, pi, electron_mass, physical_constants
 from scipy import optimize
-import argparse
+import argparse, os
 
 # some general options
 
@@ -76,6 +76,11 @@ From here on, the routine starts
 """
 
 # read textfile to temporary array using only 4 columns and the above lambda
+
+# check whether the file exists. if not, try to use it as a relative path.
+if not os.path.exists(filename):
+	filename = os.path.normcase(os.path.join(os.path.dirname(__file__), filename))
+
 tempdata = np.loadtxt(filename, usecols=(0, 3, 4, 5), skiprows=7,
                       converters={0: comma_to_dot, 3: comma_to_dot, 4: comma_to_dot, 5: comma_to_dot}, dtype=np.float64)
 
