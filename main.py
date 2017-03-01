@@ -299,7 +299,7 @@ for i in np.arange(0, nom):
             fig1.tight_layout()
 
 # export all data to a file
-export_values = np.concatenate((np.arange(1, 42).reshape((41, 1)), vp, temperatures, ion_density, vf), axis=1)
+export_values = np.concatenate((np.arange(1, nom+1).reshape((nom, 1)), vp, temperatures, ion_density, vf), axis=1)
 np.savetxt(output,
            export_values,
            fmt=('%d', '%10.6f', '%10.2f', '%10.2f', '%1.4e', '%1.4e', '%1.4e', '%10.6f'),
