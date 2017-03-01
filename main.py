@@ -129,9 +129,6 @@ ion_density = np.zeros((nom, 1), dtype=np.float64)
 
 # go through all measurements
 for i in np.arange(0, nom):
-    # not an untrusted measurement
-    error = False
-
     # first smooth the data and take the first derivative
     ea = np.gradient(savgol_filter(data[:, 1, i], 11, 2))
     # second derivative and smooth this again
@@ -159,22 +156,22 @@ for i in np.arange(0, nom):
         print(e)
         print('Minimum of second derivative: {}'.format(minimum))
         print('Maximum of second derivative: {}'.format(maximum))
-        error = True
+        continue  # we can't use this angle
 
-    # if we didn't mark it as untrusted, we take the zero-crossing
-    if error:
-        vp[i] = None
-    else:
-        # if trusted, we take the zero crossing between max and min.
-        for zerocrossing in vpfit.r:
-            if (zerocrossing > maximum) & (zerocrossing < minimum):
-                vp[i] = zerocrossing
+    # we take the zero crossing between max and min.
+    for zerocrossing in vpfit.r:
+        if (zerocrossing > maximum) & (zerocrossing < minimum):
+            vp[i] = zerocrossing
 
     # fit a linear function between -40 to -10 (subtract ion saturation current)
 
     # get the data points between max and min
     fitrangex = data[np.where((data[:, 0, i] >= -40) & (data[:, 0, i] <= -10)), 0, i][0]
     fitrangey = data[np.where((data[:, 0, i] >= -40) & (data[:, 0, i] <= -10)), 1, i][0]
+    if fitrangex.shape[0] == 0:
+        print('No data points for linear fit between -40 and -10 V found for angle {}'.format(i))
+        continue  # we cannot use this angle
+
     ionsat[i] = np.poly1d(np.polyfit(fitrangex, fitrangey, 1))
     ionsatx = np.linspace(-40, -10, 100)
 
@@ -297,6 +294,7 @@ for i in np.arange(0, nom):
             ax01.set_ylabel('A.U.')
             ax01.set_xlabel('Energy (eV)')
             fig1.tight_layout()
+            fig1.suptitle('Filename {}'.format(filename))
 
 # export all data to a file
 export_values = np.concatenate((np.arange(1, nom+1).reshape((nom, 1)), vp, temperatures, ion_density, vf), axis=1)
@@ -344,4 +342,5 @@ ax5.set_xlabel('Angle')
 ax5.set_ylabel(r'$V_f$ (V)')
 
 fig2.tight_layout()
+fig2.suptitle('Filename {}'.format(filename))
 plt.show()
