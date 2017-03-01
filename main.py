@@ -79,7 +79,7 @@ From here on, the routine starts
 
 # check whether the file exists. if not, try to use it as a relative path.
 if not os.path.exists(filename):
-	filename = os.path.normcase(os.path.join(os.path.dirname(__file__), filename))
+    filename = os.path.normcase(os.path.join(os.path.dirname(__file__), filename))
 
 tempdata = np.loadtxt(filename, usecols=(0, 3, 4, 5), skiprows=7,
                       converters={0: comma_to_dot, 3: comma_to_dot, 4: comma_to_dot, 5: comma_to_dot}, dtype=np.float64)
@@ -178,6 +178,7 @@ for i in np.arange(0, nom):
     ionsat[i] = np.poly1d(np.polyfit(fitrangex, fitrangey, 1))
     ionsatx = np.linspace(-40, -10, 100)
 
+
     # create a new dataset, where we subtract the ion saturation current
     def subtract_ion_sat_current(a):
         return data[np.where(data[:, 0, i] == a), 1, i] - ionsat[i](a)
@@ -203,8 +204,9 @@ for i in np.arange(0, nom):
 
     x = data[np.where((data_is_subtracted[:, i] >= 0) & (data[:, 0, i] <= vp[i]) & from_x_on_greater_than_zero(
         data_is_subtracted[:, i])), 0, i][0]
-    y = data_is_subtracted[np.where((data_is_subtracted[:, i] >= 0) & (data[:, 0, i] <= vp[i]) & from_x_on_greater_than_zero(
-        data_is_subtracted[:, i])), i][0]
+    y = data_is_subtracted[
+        np.where((data_is_subtracted[:, i] >= 0) & (data[:, 0, i] <= vp[i]) & from_x_on_greater_than_zero(
+            data_is_subtracted[:, i])), i][0]
     yerr = data[np.where((data_is_subtracted[:, i] >= 0) & (data[:, 0, i] <= vp[i]) & from_x_on_greater_than_zero(
         data_is_subtracted[:, i])), 2, i].T.flatten()
 
@@ -212,46 +214,57 @@ for i in np.arange(0, nom):
     vf[i] = x[0]
 
     # fit the data
-    res = optimize.leastsq(errfunc, np.asarray(p, dtype=np.float64), args=(x, y), full_output=True)
-    (p1, pcov, infodict, errmsg, ier) = res
+    fit_success = False
+    try:
+        res = optimize.leastsq(errfunc, np.asarray(p, dtype=np.float64), args=(x, y), full_output=True)
+        (p1, pcov, infodict, errmsg, ier) = res
+        fit_success = True
+    except TypeError:
+        print('Warning: not enough fitting points between floating and plasma potential for angle {}'.format(i))
+        p1 = [None]*4
 
-    # inspect and save electron temperatures
-    # if we happen to have only one electron temperature in the measurement, the fit converges to almost the same
-    # electron temperature for t_hot and t_cold. hence we check, whether they are within a certain percentage of one
-    # another and if so, we add the currents (as they are the same and save it as [t|n]_cold
-    t_cold = p1[1]
-    t_hot = p1[3]
-    n_cold = p1[0] / (elementary_charge * probe_area) * np.sqrt(2 * pi * electron_mass / (Boltzmann * t_cold)) / 1000000
-    n_hot = p1[2] / (elementary_charge * probe_area) * np.sqrt(2 * pi * electron_mass / (Boltzmann * t_hot)) / 1000000
+    if fit_success:
+        # inspect and save electron temperatures
+        # if we happen to have only one electron temperature in the measurement, the fit converges to almost the same
+        # electron temperature for t_hot and t_cold. hence we check, whether they are within a certain percentage of one
+        # another and if so, we add the currents (as they are the same and save it as [t|n]_cold
+        t_cold = p1[1]
+        t_hot = p1[3]
+        n_cold = p1[0] / (elementary_charge * probe_area) * np.sqrt(2 * pi * electron_mass / (Boltzmann * t_cold)) / 1000000
+        n_hot = p1[2] / (elementary_charge * probe_area) * np.sqrt(2 * pi * electron_mass / (Boltzmann * t_hot)) / 1000000
 
-    # check whether they switched places
-    if t_cold > t_hot:
-        t_cold, t_hot = t_hot, t_cold
-        n_cold, n_hot = n_hot, n_cold
+        # check whether they switched places
+        if t_cold > t_hot:
+            t_cold, t_hot = t_hot, t_cold
+            n_cold, n_hot = n_hot, n_cold
 
-    if (t_hot / t_cold < (1 + hot_cold_diff)) & (t_hot / t_cold > (1 - hot_cold_diff)):
-        t_hot = None
-        n_cold += n_hot
-        n_hot = None
+        if (t_hot / t_cold < (1 + hot_cold_diff)) & (t_hot / t_cold > (1 - hot_cold_diff)):
+            t_hot = None
+            n_cold += n_hot
+            n_hot = None
 
-    temperatures[i, :] = [t_hot, t_cold, n_hot, n_cold]
+        temperatures[i, :] = [t_hot, t_cold, n_hot, n_cold]
 
-    # calculate ion density according to http://dx.doi.org/10.1116/1.1515800
-    mass_argon = 39.96238 * physical_constants['atomic mass constant'][0]
-    ion_density[i] = np.abs(ionsat[i](vp[i])) / (0.6 * elementary_charge**(3/2) * probe_area) * np.sqrt(elementary_charge * mass_argon / (Boltzmann * t_cold)) / 1000000
+        # calculate ion density according to http://dx.doi.org/10.1116/1.1515800
+        mass_argon = 39.96238 * physical_constants['atomic mass constant'][0]
+        ion_density[i] = np.abs(ionsat[i](vp[i])) / (0.6 * elementary_charge ** (3 / 2) * probe_area) * np.sqrt(
+            elementary_charge * mass_argon / (Boltzmann * t_cold)) / 1000000
 
     # calculate electron energy probability function according to http://dx.doi.org/10.1063/1.4905901
     # eepf is just a python list, because we the number of datapoints for each angle can be different. each entry of
     # eepf is the a numpy array with shape (data points, 2)
-    eepf_array = np.zeros((data[np.where((data[:, 0, i] < vp[i]) & (data[:, 0, i] > vf[i])), 0, i].shape[1], 2), dtype=np.float64)
+    eepf_array = np.zeros((data[np.where((data[:, 0, i] < vp[i]) & (data[:, 0, i] > vf[i])), 0, i].shape[1], 2),
+                          dtype=np.float64)
     eepf_array[:, 0] = vp[i] - data[np.where((data[:, 0, i] < vp[i]) & (data[:, 0, i] > vf[i])), 0, i]
-    eepf_array[:, 1] = za[np.where((data[:, 0, i] < vp[i]) & (data[:, 0, i] > vf[i]))]*(2*electron_mass/(elementary_charge**2*probe_area))*np.sqrt(2*elementary_charge/electron_mass)
+    eepf_array[:, 1] = za[np.where((data[:, 0, i] < vp[i]) & (data[:, 0, i] > vf[i]))] * (
+        2 * electron_mass / (elementary_charge ** 2 * probe_area)) * np.sqrt(2 * elementary_charge / electron_mass)
     eepf[i] = eepf_array
 
-    # convert temperatures to eV
-    conversion_factor = physical_constants['electron volt-kelvin relationship'][0]
-    temperatures[i, 0] = temperatures[i, 0] / conversion_factor
-    temperatures[i, 1] = temperatures[i, 1] / conversion_factor
+    if fit_success:
+        # convert temperatures to eV
+        conversion_factor = physical_constants['electron volt-kelvin relationship'][0]
+        temperatures[i, 0] = temperatures[i, 0] / conversion_factor
+        temperatures[i, 1] = temperatures[i, 1] / conversion_factor
 
     # plot a dataset
     if angle_to_plot:
