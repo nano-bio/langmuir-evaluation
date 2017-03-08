@@ -209,6 +209,7 @@ for i in np.arange(0, nom):
 
     # first point of x is the floating potential
     vf[i] = x[0]
+    # TODO evaluate zero crossing of fit to get vf
 
     # fit the data
     fit_success = False

@@ -23,4 +23,3 @@ optional arguments:
 * re-sort all ax_n variables in order of appearance or name appropriately
 * use errors for weighted fit
 * GUI
-* error handling
