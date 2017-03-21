@@ -7,11 +7,6 @@ import argparse, os
 
 # some general options
 
-# area of the langmuir probe
-probe_diam = 0.0003 # in meter
-probe_length = 0.003 # in meter 
-probe_area = probe_diam * pi * probe_length + probe_diam**2*pi/4  # in m^2
-print ('probe area = ', probe_area)
 # percentage of minimum electron temperature difference to consider them as two populations
 hot_cold_diff = 0.1
 
@@ -32,6 +27,12 @@ parser.add_argument("--output",
                     "-o",
                     help="Specify a filename for the output data. Defaults to results.txt",
                     default='results.txt')
+					
+parser.add_argument("--probe_diameter",
+                    "-pd",
+					type=float,
+                    help="Specify the diameter of the probe. Defaults is set to 0.0004 m",
+                    default=0.0004)					
 
 # parse it
 args = parser.parse_args()
@@ -39,6 +40,12 @@ args = parser.parse_args()
 angle_to_plot = int(args.plot)
 filename = args.filename
 output = args.output
+probe_diam = args.probe_diameter # probe diameter in m
+
+# area of the langmuir probe
+probe_length = 0.003 # in meter 
+probe_area = probe_diam * pi * probe_length + probe_diam**2*pi/4  # in m^2
+print ('probe area = ', probe_area)
 
 """
 Starting from here we set up some helper functions
@@ -229,6 +236,7 @@ for i in np.arange(0, nom):
         # if we happen to have only one electron temperature in the measurement, the fit converges to almost the same
         # electron temperature for t_hot and t_cold. hence we check, whether they are within a certain percentage of one
         # another and if so, we add the currents (as they are the same and save it as [t|n]_cold
+		# factor 1000000000 because of mA current signal and m^-3 to cm^-3 
         t_cold = p1[1]
         t_hot = p1[3]
         n_cold = p1[0] / (elementary_charge * probe_area) * np.sqrt(2 * pi * electron_mass / (Boltzmann * t_cold)) / 1000000000
@@ -247,6 +255,7 @@ for i in np.arange(0, nom):
         temperatures[i, :] = [t_hot, t_cold, n_hot, n_cold]
 
         # calculate ion density according to http://dx.doi.org/10.1116/1.1515800
+		# factor 1000000000 because of mA current signal and m^-3 to cm^-3 
         mass_argon = 39.96238 * physical_constants['atomic mass constant'][0]
         ion_density[i] = np.abs(ionsat[i](vp[i])) / (0.6 * elementary_charge ** (3 / 2) * probe_area) * np.sqrt(
             elementary_charge * mass_argon / (Boltzmann * t_cold)) / 1000000000
