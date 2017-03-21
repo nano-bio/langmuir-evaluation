@@ -8,7 +8,10 @@ import argparse, os
 # some general options
 
 # area of the langmuir probe
-probe_area = 0.00000389557  # in m^2
+probe_diam = 0.0003 # in meter
+probe_length = 0.003 # in meter 
+probe_area = probe_diam * pi * probe_length + probe_diam**2*pi/4  # in m^2
+print ('probe area = ', probe_area)
 # percentage of minimum electron temperature difference to consider them as two populations
 hot_cold_diff = 0.1
 
@@ -228,8 +231,8 @@ for i in np.arange(0, nom):
         # another and if so, we add the currents (as they are the same and save it as [t|n]_cold
         t_cold = p1[1]
         t_hot = p1[3]
-        n_cold = p1[0] / (elementary_charge * probe_area) * np.sqrt(2 * pi * electron_mass / (Boltzmann * t_cold)) / 1000000
-        n_hot = p1[2] / (elementary_charge * probe_area) * np.sqrt(2 * pi * electron_mass / (Boltzmann * t_hot)) / 1000000
+        n_cold = p1[0] / (elementary_charge * probe_area) * np.sqrt(2 * pi * electron_mass / (Boltzmann * t_cold)) / 1000000000
+        n_hot = p1[2] / (elementary_charge * probe_area) * np.sqrt(2 * pi * electron_mass / (Boltzmann * t_hot)) / 1000000000
 
         # check whether they switched places
         if t_cold > t_hot:
@@ -246,7 +249,7 @@ for i in np.arange(0, nom):
         # calculate ion density according to http://dx.doi.org/10.1116/1.1515800
         mass_argon = 39.96238 * physical_constants['atomic mass constant'][0]
         ion_density[i] = np.abs(ionsat[i](vp[i])) / (0.6 * elementary_charge ** (3 / 2) * probe_area) * np.sqrt(
-            elementary_charge * mass_argon / (Boltzmann * t_cold)) / 1000000
+            elementary_charge * mass_argon / (Boltzmann * t_cold)) / 1000000000
 
     # calculate electron energy probability function according to http://dx.doi.org/10.1063/1.4905901
     # eepf is just a python list, because we the number of datapoints for each angle can be different. each entry of
