@@ -31,8 +31,14 @@ parser.add_argument("--output",
 parser.add_argument("--probe_diameter",
                     "-pd",
                     type=float,
-                    help="Specify the diameter of the probe. Defaults is set to 0.0004 m",
-                    default=0.0004)                    
+                    help="Specify the diameter of the probe. Default is set to 0.0004 m",
+                    default=0.0004) 
+
+parser.add_argument("--probe_length",
+                    "-pl",
+                    type=float,
+                    help="Specify the length of the probe. Default is set to 0.003 m",
+                    default=0.003)					
 
 # parse it
 args = parser.parse_args()
@@ -41,12 +47,16 @@ angle_to_plot = int(args.plot)
 filename = args.filename
 output = args.output
 probe_diam = args.probe_diameter # probe diameter in m
+probe_length = args.probe_length # probe length in m
 
 # area of the langmuir probe
-probe_length = 0.003 # in meter 
+#probe_length = 0.003 # in meter 
 probe_area = probe_diam * pi * probe_length + probe_diam**2*pi/4  # in m^2
+print('Langmuir probe geometry used for data evaluation:')
 print ('probe diameter = ', probe_diam)
+print ('probe length = ', probe_length)
 print ('probe area = ', probe_area)
+
 
 """
 Starting from here we set up some helper functions
