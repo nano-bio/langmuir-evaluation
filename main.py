@@ -230,9 +230,11 @@ for i in np.arange(0, nom):
     yerr = data[np.where((data_is_subtracted[:, i] >= 0) & (data[:, 0, i] <= vp[i]) & from_x_on_greater_than_zero(
         data_is_subtracted[:, i])), 2, i].T.flatten()
 
-    # first point of x is the floating potential
-    vf[i] = x[0]
-    # TODO evaluate zero crossing of fit to get vf
+    # we interpolate linearly between the first point used for the fits (x[0]) and the one before
+    index_before_vf = np.where(data[:, 0, i] == x[0])[0][0]-1
+    x_before_vf = data[index_before_vf, 0, i]
+    y_before_vf = data_is_subtracted[index_before_vf, i]
+    vf[i] = x_before_vf-(x[0]-x_before_vf)/(y[0]-y_before_vf)*y_before_vf
 
     # fit the data
     fit_success = False
