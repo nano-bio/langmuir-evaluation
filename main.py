@@ -150,6 +150,8 @@ temperatures = np.zeros((nom, 4), dtype=np.float64)
 ion_density = np.zeros((nom, 1), dtype=np.float64)
 # preallocate array for effective electron density
 electron_density = np.zeros((nom, 1), dtype=np.float64)
+# preallocate array for effective temperature
+t_eff = np.zeros((nom, 1), dtype=np.float64)
 
 # go through all measurements
 for i in np.arange(0, nom):
@@ -275,13 +277,31 @@ for i in np.arange(0, nom):
             n_hot = None
 
         temperatures[i, :] = [t_hot, t_cold, n_hot, n_cold]
-
+		
+		# calculate effective temperature according to http://dx.doi.org/10.1063/1.370873 
+        #if t_hot is not None:
+            #t_eff[i] = ((p1[0]/t_cold**(1/2)+p1[2]/t_hot**(1/2))*(p1[0]/t_cold**(3/2)+p1[2]/t_hot**(3/2)))**(-1)
+        #else:
+            #t_eff[i] = t_cold
+		
+        #print(t_eff[i])
+		
+		# calculate effective temperature according to http://dx.doi.org/10.1119/1.2772282
+        if t_hot is not None:
+            t_eff[i] = ((n_cold/(n_cold + n_hot))*(1/t_cold) + (n_hot/(n_cold + n_hot))*(1/t_hot))**(-1)
+        else:
+            t_eff[i] = t_cold
+		
+        #print(t_eff[i])
+		
+		
         # calculate ion density according to http://dx.doi.org/10.1116/1.1515800
         # factor 1000000000 because of mA current signal and m^-3 to cm^-3 
         mass_argon = 39.96238 * physical_constants['atomic mass constant'][0]
         ion_density[i] = np.abs(ionsat[i](vp[i])) / (0.6 * elementary_charge ** (3 / 2) * probe_area) * np.sqrt(
-            elementary_charge * mass_argon / (Boltzmann * t_cold)) / 1000000000
-
+            elementary_charge * mass_argon / (Boltzmann * t_eff[i])) / 1000000000
+			
+	
     # calculate electron energy probability function according to http://dx.doi.org/10.1063/1.4905901
     # eepf is just a python list, because we the number of datapoints for each angle can be different. each entry of
     # eepf is the a numpy array with shape (data points, 2)
