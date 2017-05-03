@@ -186,17 +186,20 @@ for i in np.arange(0, nom):
         if (zerocrossing > maximum) & (zerocrossing < minimum):
             vp[i] = zerocrossing
 
-    # fit a linear function between -40 to -10 (subtract ion saturation current)
+    # next step: subtract ion saturation current
+    # fit a linear function between -40 and 5 volts left of the zero crossing
+    zerocrossingindex = np.where(np.diff(np.sign(data[:, 1, i])))[0]
+    zerocrossingx = data[zerocrossingindex, 0, i] - 5
 
     # get the data points between max and min
-    fitrangex = data[np.where((data[:, 0, i] >= -40) & (data[:, 0, i] <= -10)), 0, i][0]
-    fitrangey = data[np.where((data[:, 0, i] >= -40) & (data[:, 0, i] <= -10)), 1, i][0]
+    fitrangex = data[np.where((data[:, 0, i] >= -40) & (data[:, 0, i] <= zerocrossingx)), 0, i][0]
+    fitrangey = data[np.where((data[:, 0, i] >= -40) & (data[:, 0, i] <= zerocrossingx)), 1, i][0]
     if fitrangex.shape[0] == 0:
         print('No data points for linear fit between -40 and -10 V found for angle {}'.format(i))
         continue  # we cannot use this angle
 
     ionsat[i] = np.poly1d(np.polyfit(fitrangex, fitrangey, 1))
-    ionsatx = np.linspace(-40, -10, 100)
+    ionsatx = np.linspace(-40, zerocrossingx, 100)
 
 
     # create a new dataset, where we subtract the ion saturation current
