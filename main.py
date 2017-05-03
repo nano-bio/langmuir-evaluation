@@ -110,7 +110,8 @@ nom = int(np.amax(tempdata, axis=0)[0])
 
 # check whether all measurements have the same number of data points
 if tempdata.shape[0] % nom != 0:
-    quit('Not an equal amount of data points for all measurements')
+    print('Not an equal amount of data points for all measurements')
+    quit(-1)
 
 lines = int(tempdata.shape[0] / nom)
 
@@ -175,7 +176,7 @@ for i in np.arange(0, nom):
         vpfit = np.poly1d(np.polyfit(fitrangex, fitrangey, 3))
         vpfitx = np.linspace(maximum[0], minimum[0], 100)
     except Exception as e:
-        print('Fehler in Iteration {}:'.format(i))
+        print('Fehler in Angle {}:'.format(i+1))
         print(e)
         print('Minimum of second derivative: {}'.format(minimum))
         print('Maximum of second derivative: {}'.format(maximum))
