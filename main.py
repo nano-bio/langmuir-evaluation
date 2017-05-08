@@ -3,12 +3,14 @@ import matplotlib.pyplot as plt
 from scipy.signal import savgol_filter
 from scipy.constants import Boltzmann, elementary_charge, pi, electron_mass, physical_constants
 from scipy import optimize
-import argparse, os
+import argparse
+import os
 
 # some general options
 
 # percentage of minimum electron temperature difference to consider them as two populations
 hot_cold_diff = 0.1
+hot_cold_population_diff = 1e15
 
 # using the argparse module to make use of command line options
 parser = argparse.ArgumentParser(description="Evaluation script for langmuir measurements")
@@ -71,8 +73,8 @@ def from_x_on_greater_than_zero(array):
     :return: array with booleans
     """
     returnarray = [False] * array.shape[0]
-    for i in np.arange(0, array.shape[0]):
-        returnarray[i] = np.greater(array[i:], 0).all()
+    for j in np.arange(0, array.shape[0]):
+        returnarray[j] = np.greater(array[j:], 0).all()
     return returnarray
 
 
@@ -207,7 +209,6 @@ for i in np.arange(0, nom):
     ionsat[i] = np.poly1d(np.polyfit(fitrangex, fitrangey, 1))
     ionsatx = np.linspace(-40, zerocrossingx, 100)
 
-
     # create a new dataset, where we subtract the ion saturation current
     def subtract_ion_sat_current(a):
         return data[np.where(data[:, 0, i] == a), 1, i] - ionsat[i](a)
@@ -255,8 +256,7 @@ for i in np.arange(0, nom):
     index_before_vf = np.where(data[:, 0, i] == vf_at_datapoint)[0][0] - 1
     x_before_vf = data[index_before_vf, 0, i]
     y_before_vf = data[index_before_vf, 1, i]
-    vf[i] = x_before_vf - (vf_at_datapoint - x_before_vf) / (
-    data[np.where(data[:, 0, i] == vf_at_datapoint), 1, i][0][0] - y_before_vf) * y_before_vf
+    vf[i] = x_before_vf - (vf_at_datapoint - x_before_vf) / (data[np.where(data[:, 0, i] == vf_at_datapoint), 1, i][0][0] - y_before_vf) * y_before_vf
 
     # fit the data
     fit_success = False
@@ -289,18 +289,19 @@ for i in np.arange(0, nom):
         # calculate total electron density 
         electron_density[i] = n_cold + n_hot
 
-        print('Old:\nT_cold: {} N_cold {}\nT_hot: {} N_hot {}'.format(t_cold, n_cold, t_hot, n_hot))
+        # check whether the two electron temperature are within a small window or whether one population is much more
+        # abundante then the other. if so, we fit again with only one population.
+        if ((t_hot / t_cold < (1 + hot_cold_diff)) & (t_hot / t_cold > (1 - hot_cold_diff))) | ((n_cold/n_hot > hot_cold_population_diff) | (n_hot/n_cold > hot_cold_population_diff)):
+            print("Only one popuplation in angle {}:".format(i + 1))
+            print('Old:\nT_cold: {} N_cold {}\nT_hot: {} N_hot {}'.format(t_cold, n_cold, t_hot, n_hot))
 
-        # check whether the two electron temperature are within a small window. if so, we fit again with only one
-        # population
-        if (t_hot / t_cold < (1 + hot_cold_diff)) & (t_hot / t_cold > (1 - hot_cold_diff)):
             # new guessed parameters
             p = [0] * 2
             p[0] = (n_hot + n_cold) * 1e9 / np.sqrt(2 * pi * electron_mass / (Boltzmann * t_hot)) * (elementary_charge * probe_area)# fit should be around the sum of the two
-            p[1] = t_hot # temperatures are similar anyway
+            p[1] = t_cold # temperatures are similar anyway
 
             bounds_lower = [0] * 2
-            bounds_upper = [100, 1e8]
+            bounds_upper = [200, 1e8]
 
             # new function with just one exponential
             errfunc = lambda p, x, y: ic_func_single_temp(p, x) - y
@@ -312,7 +313,7 @@ for i in np.arange(0, nom):
             n_cold = p1[0] / (elementary_charge * probe_area) * np.sqrt(
                 2 * pi * electron_mass / (Boltzmann * t_cold)) / 1000000000
 
-            print('New:\nT_cold: {} N_cold {}'.format(n_cold, t_cold))
+            print('New:\nT_cold: {} N_cold {}'.format(t_cold, n_cold))
 
             # calculate total electron density
             electron_density[i] = n_cold
