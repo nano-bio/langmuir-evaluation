@@ -65,7 +65,7 @@ Starting from here we set up some helper functions
 
 def from_x_on_greater_than_zero(array):
     """
-    This funtion returns an array of booleans that indicate, whether all following data points are above zero. Example:
+    This function returns an array of booleans that indicate, whether all following data points are above zero. Example:
     [0 -1 -2 -3 -2 -1 0 1 2 1 0 -1 0 1 2 3 4 5]
     returns
     [F F F F F F F F F F F T T T T T T]
@@ -136,7 +136,9 @@ tempdata2 = None
 
 # preallocate array for the plasma potentials
 vp = np.zeros((nom, 1), dtype=np.float64)
-# preallocate array for the floating potentials
+# preallocate array for the fit starting points
+fit_start = np.zeros((nom, 1), dtype=np.float64)
+# preallocate array for the floating potential
 vf = np.zeros((nom, 1), dtype=np.float64)
 # preallocate array for the EEPF
 eepf = [None] * nom
@@ -223,7 +225,7 @@ for i in np.arange(0, nom):
     p[3] = 145100  # 12.5 eV in K
 
     # select the data points to be fitted. three conditions:
-    # 1) ion saturation corrected current has to be above zero (above floating potential)
+    # 1) ion saturation corrected current has to be above zero
     # 2) only data points below the plasma potential
     # 3) using the above function from_x_on_greater_than_zero we avoid data points above zero which happened due to the
     # correction
@@ -237,10 +239,19 @@ for i in np.arange(0, nom):
         data_is_subtracted[:, i])), 2, i].T.flatten()
 
     # we interpolate linearly between the first point used for the fits (x[0]) and the one before
-    index_before_vf = np.where(data[:, 0, i] == x[0])[0][0]-1
+    index_before_fit_start = np.where(data[:, 0, i] == x[0])[0][0]-1
+    x_before_fit_start = data[index_before_fit_start, 0, i]
+    y_before_fit_start = data_is_subtracted[index_before_fit_start, i]
+    fit_start[i] = x_before_fit_start - (x[0] - x_before_fit_start) / (y[0] - y_before_fit_start) * y_before_fit_start
+
+    # similar procedure to calculate the floating potential:
+    # 1) probe current has to be above zero (the uncorrected one, as opposed to above)
+    # --> zero crossing of probe current
+    vf_at_datapoint = data[np.where(from_x_on_greater_than_zero(data[:, 1, i])), 0, i][0][0]
+    index_before_vf = np.where(data[:, 0, i] == vf_at_datapoint)[0][0] - 1
     x_before_vf = data[index_before_vf, 0, i]
-    y_before_vf = data_is_subtracted[index_before_vf, i]
-    vf[i] = x_before_vf-(x[0]-x_before_vf)/(y[0]-y_before_vf)*y_before_vf
+    y_before_vf = data[index_before_vf, 1, i]
+    vf[i] = x_before_vf - (vf_at_datapoint - x_before_vf) / (data[np.where(data[:, 0, i] == vf_at_datapoint), 1, i][0][0]- y_before_vf) * y_before_vf
 
     # fit the data
     fit_success = False
@@ -305,10 +316,10 @@ for i in np.arange(0, nom):
     # calculate electron energy probability function according to http://dx.doi.org/10.1063/1.4905901
     # eepf is just a python list, because we the number of datapoints for each angle can be different. each entry of
     # eepf is the a numpy array with shape (data points, 2)
-    eepf_array = np.zeros((data[np.where((data[:, 0, i] < vp[i]) & (data[:, 0, i] > vf[i])), 0, i].shape[1], 2),
+    eepf_array = np.zeros((data[np.where((data[:, 0, i] < vp[i]) & (data[:, 0, i] > fit_start[i])), 0, i].shape[1], 2),
                           dtype=np.float64)
-    eepf_array[:, 0] = vp[i] - data[np.where((data[:, 0, i] < vp[i]) & (data[:, 0, i] > vf[i])), 0, i]
-    eepf_array[:, 1] = za[np.where((data[:, 0, i] < vp[i]) & (data[:, 0, i] > vf[i]))] * (
+    eepf_array[:, 0] = vp[i] - data[np.where((data[:, 0, i] < vp[i]) & (data[:, 0, i] > fit_start[i])), 0, i]
+    eepf_array[:, 1] = za[np.where((data[:, 0, i] < vp[i]) & (data[:, 0, i] > fit_start[i]))] * (
         2 * electron_mass / (elementary_charge ** 2 * probe_area)) * np.sqrt(2 * elementary_charge / electron_mass)
     eepf[i] = eepf_array
 
@@ -352,12 +363,12 @@ for i in np.arange(0, nom):
             fig1.suptitle('Filename {}'.format(filename))
 
 # export all data to a file
-export_values = np.concatenate((np.arange(1, nom+1).reshape((nom, 1)), vp, temperatures, ion_density, vf, electron_density), axis=1)
+export_values = np.concatenate((np.arange(1, nom+1).reshape((nom, 1)), vp, temperatures, ion_density, fit_start, electron_density, vf), axis=1)
 np.savetxt(output,
            export_values,
-           fmt=('%d', '%10.6f', '%10.2f', '%10.2f', '%1.4e', '%1.4e', '%1.4e', '%10.6f', '%1.4e'),
+           fmt=('%d', '%10.6f', '%10.2f', '%10.2f', '%1.4e', '%1.4e', '%1.4e', '%10.6f', '%1.4e', '%10.6f'),
            delimiter='\t',
-           header='Measurement\tPlasma Potential\tT_hot\tT_cold\tn_hot\tn_cold\tn_ion\tFloating Potential\tEffective Electron Density')
+           header='Measurement\tPlasma Potential\tT_hot\tT_cold\tn_hot\tn_cold\tn_ion\tFit starting point\tEffective Electron Density\tFloating Potential')
 
 # make a nice overview plot using the export_values array
 fig2 = plt.figure()
@@ -391,7 +402,7 @@ ax4.set_ylabel(r'$n_e (cm^{-3})$')
 ax4.legend([nhotplot, ncoldplot], ['Hot Electrons', 'Cold Electrons'])
 
 ax5 = fig2.add_subplot(234)
-ax5.plot(export_values[:, 0], export_values[:, 7], 'x')
+ax5.plot(export_values[:, 0], export_values[:, 9], 'x')
 ax5.set_title('Floating Potential')
 ax5.set_xlabel('Angle')
 ax5.set_ylabel(r'$V_f$ (V)')
