@@ -27,18 +27,18 @@ parser.add_argument("--output",
                     "-o",
                     help="Specify a filename for the output data. Defaults to results.txt",
                     default='results.txt')
-                    
+
 parser.add_argument("--probe_diameter",
                     "-pd",
                     type=float,
                     help="Specify the diameter of the probe. Default is set to 0.0004 m",
-                    default=0.0004) 
+                    default=0.0004)
 
 parser.add_argument("--probe_length",
                     "-pl",
                     type=float,
                     help="Specify the length of the probe. Default is set to 0.003 m",
-                    default=0.003)					
+                    default=0.003)
 
 # parse it
 args = parser.parse_args()
@@ -46,17 +46,15 @@ args = parser.parse_args()
 angle_to_plot = int(args.plot)
 filename = args.filename
 output = args.output
-probe_diam = args.probe_diameter # probe diameter in m
-probe_length = args.probe_length # probe length in m
+probe_diam = args.probe_diameter  # probe diameter in m
+probe_length = args.probe_length  # probe length in m
 
 # area of the langmuir probe
-#probe_length = 0.003 # in meter 
-probe_area = probe_diam * pi * probe_length + probe_diam**2*pi/4  # in m^2
+probe_area = probe_diam * pi * probe_length + probe_diam ** 2 * pi / 4  # in m^2
 print('Langmuir probe geometry used for data evaluation:')
-print ('probe diameter = ', probe_diam)
-print ('probe length = ', probe_length)
-print ('probe area = ', probe_area)
-
+print('probe diameter = {}'.format(probe_diam))
+print('probe length = {}'.format(probe_length))
+print('probe area = {}'.format(probe_area))
 
 """
 Starting from here we set up some helper functions
@@ -84,6 +82,9 @@ comma_to_dot = lambda s: float(s.decode("utf-8").replace(',', '.'))
 # lambda that corresponds to complete current function as in http://dx.doi.org/10.1116/1.577344 eq. 1
 ic_func = lambda p, x: p[0] * np.exp(elementary_charge * (x - vp[i]) / (Boltzmann * p[1])) + p[2] * np.exp(
     elementary_charge * (x - vp[i]) / (Boltzmann * p[3]))
+
+# in the case of just one electron temperature we fit the same function, but with only one exponential func.
+ic_func_single_temp = lambda p, x: p[0] * np.exp(elementary_charge * (x - vp[i]) / (Boltzmann * p[1]))
 
 """
 p[0] = electron current cold
@@ -180,7 +181,7 @@ for i in np.arange(0, nom):
         vpfit = np.poly1d(np.polyfit(fitrangex, fitrangey, 3))
         vpfitx = np.linspace(maximum[0], minimum[0], 100)
     except Exception as e:
-        print('Fehler in Angle {}:'.format(i+1))
+        print("Fehler in Angle {}:".format(i + 1))
         print(e)
         print('Minimum of second derivative: {}'.format(minimum))
         print('Maximum of second derivative: {}'.format(maximum))
@@ -224,6 +225,9 @@ for i in np.arange(0, nom):
     p[2] = 1
     p[3] = 145100  # 12.5 eV in K
 
+    bounds_lower = [0] * 4
+    bounds_upper = [100, 1e8, 100, 1e8]
+
     # select the data points to be fitted. three conditions:
     # 1) ion saturation corrected current has to be above zero
     # 2) only data points below the plasma potential
@@ -239,7 +243,7 @@ for i in np.arange(0, nom):
         data_is_subtracted[:, i])), 2, i].T.flatten()
 
     # we interpolate linearly between the first point used for the fits (x[0]) and the one before
-    index_before_fit_start = np.where(data[:, 0, i] == x[0])[0][0]-1
+    index_before_fit_start = np.where(data[:, 0, i] == x[0])[0][0] - 1
     x_before_fit_start = data[index_before_fit_start, 0, i]
     y_before_fit_start = data_is_subtracted[index_before_fit_start, i]
     fit_start[i] = x_before_fit_start - (x[0] - x_before_fit_start) / (y[0] - y_before_fit_start) * y_before_fit_start
@@ -251,17 +255,18 @@ for i in np.arange(0, nom):
     index_before_vf = np.where(data[:, 0, i] == vf_at_datapoint)[0][0] - 1
     x_before_vf = data[index_before_vf, 0, i]
     y_before_vf = data[index_before_vf, 1, i]
-    vf[i] = x_before_vf - (vf_at_datapoint - x_before_vf) / (data[np.where(data[:, 0, i] == vf_at_datapoint), 1, i][0][0]- y_before_vf) * y_before_vf
+    vf[i] = x_before_vf - (vf_at_datapoint - x_before_vf) / (
+    data[np.where(data[:, 0, i] == vf_at_datapoint), 1, i][0][0] - y_before_vf) * y_before_vf
 
     # fit the data
     fit_success = False
     try:
-        res = optimize.leastsq(errfunc, np.asarray(p, dtype=np.float64), args=(x, y), full_output=True)
-        (p1, pcov, infodict, errmsg, ier) = res
+        res = optimize.least_squares(errfunc, np.asarray(p, dtype=np.float64), args=(x, y), bounds=(bounds_lower, bounds_upper))
+        p1 = res.x
         fit_success = True
     except TypeError:
         print('Warning: not enough fitting points between floating and plasma potential for angle {}'.format(i))
-        p1 = [None]*4
+        p1 = [None] * 4
 
     if fit_success:
         # inspect and save electron temperatures
@@ -271,48 +276,64 @@ for i in np.arange(0, nom):
         # factor 1000000000 because of mA current signal and m^-3 to cm^-3 
         t_cold = p1[1]
         t_hot = p1[3]
-        n_cold = p1[0] / (elementary_charge * probe_area) * np.sqrt(2 * pi * electron_mass / (Boltzmann * t_cold)) / 1000000000
-        n_hot = p1[2] / (elementary_charge * probe_area) * np.sqrt(2 * pi * electron_mass / (Boltzmann * t_hot)) / 1000000000
+        n_cold = p1[0] / (elementary_charge * probe_area) * np.sqrt(
+            2 * pi * electron_mass / (Boltzmann * t_cold)) / 1e9
+        n_hot = p1[2] / (elementary_charge * probe_area) * np.sqrt(
+            2 * pi * electron_mass / (Boltzmann * t_hot)) / 1e9
 
         # check whether they switched places
         if t_cold > t_hot:
             t_cold, t_hot = t_hot, t_cold
             n_cold, n_hot = n_hot, n_cold
-            
+
         # calculate total electron density 
         electron_density[i] = n_cold + n_hot
-        
+
+        print('Old:\nT_cold: {} N_cold {}\nT_hot: {} N_hot {}'.format(t_cold, n_cold, t_hot, n_hot))
+
+        # check whether the two electron temperature are within a small window. if so, we fit again with only one
+        # population
         if (t_hot / t_cold < (1 + hot_cold_diff)) & (t_hot / t_cold > (1 - hot_cold_diff)):
+            # new guessed parameters
+            p = [0] * 2
+            p[0] = (n_hot + n_cold) * 1e9 / np.sqrt(2 * pi * electron_mass / (Boltzmann * t_hot)) * (elementary_charge * probe_area)# fit should be around the sum of the two
+            p[1] = t_hot # temperatures are similar anyway
+
+            bounds_lower = [0] * 2
+            bounds_upper = [100, 1e8]
+
+            # new function with just one exponential
+            errfunc = lambda p, x, y: ic_func_single_temp(p, x) - y
+            res = optimize.least_squares(errfunc, np.asarray(p, dtype=np.float64), args=(x, y), bounds=(bounds_lower, bounds_upper))
+            p1 = res.x
+
+            t_cold = p1[1]
+
+            n_cold = p1[0] / (elementary_charge * probe_area) * np.sqrt(
+                2 * pi * electron_mass / (Boltzmann * t_cold)) / 1000000000
+
+            print('New:\nT_cold: {} N_cold {}'.format(n_cold, t_cold))
+
+            # calculate total electron density
+            electron_density[i] = n_cold
+
             t_hot = None
-            n_cold += n_hot
             n_hot = None
 
         temperatures[i, :] = [t_hot, t_cold, n_hot, n_cold]
-		
-		# calculate effective temperature according to http://dx.doi.org/10.1063/1.370873 
-        #if t_hot is not None:
-            #t_eff[i] = ((p1[0]/t_cold**(1/2)+p1[2]/t_hot**(1/2))*(p1[0]/t_cold**(3/2)+p1[2]/t_hot**(3/2)))**(-1)
-        #else:
-            #t_eff[i] = t_cold
-		
-        #print(t_eff[i])
-		
-		# calculate effective temperature according to http://dx.doi.org/10.1119/1.2772282
+
+        # calculate effective temperature according to http://dx.doi.org/10.1119/1.2772282
         if t_hot is not None:
-            t_eff[i] = ((n_cold/(n_cold + n_hot))*(1/t_cold) + (n_hot/(n_cold + n_hot))*(1/t_hot))**(-1)
+            t_eff[i] = ((n_cold / (n_cold + n_hot)) * (1 / t_cold) + (n_hot / (n_cold + n_hot)) * (1 / t_hot)) ** (-1)
         else:
             t_eff[i] = t_cold
-		
-        #print(t_eff[i])
-		
-		
+
         # calculate ion density according to http://dx.doi.org/10.1116/1.1515800
         # factor 1000000000 because of mA current signal and m^-3 to cm^-3 
         mass_argon = 39.96238 * physical_constants['atomic mass constant'][0]
         ion_density[i] = np.abs(ionsat[i](vp[i])) / (0.6 * elementary_charge ** (3 / 2) * probe_area) * np.sqrt(
             elementary_charge * mass_argon / (Boltzmann * t_eff[i])) / 1000000000
-			
-	
+
     # calculate electron energy probability function according to http://dx.doi.org/10.1063/1.4905901
     # eepf is just a python list, because we the number of datapoints for each angle can be different. each entry of
     # eepf is the a numpy array with shape (data points, 2)
@@ -363,7 +384,8 @@ for i in np.arange(0, nom):
             fig1.suptitle('Filename {}'.format(filename))
 
 # export all data to a file
-export_values = np.concatenate((np.arange(1, nom+1).reshape((nom, 1)), vp, temperatures, ion_density, fit_start, electron_density, vf), axis=1)
+export_values = np.concatenate(
+    (np.arange(1, nom + 1).reshape((nom, 1)), vp, temperatures, ion_density, fit_start, electron_density, vf), axis=1)
 np.savetxt(output,
            export_values,
            fmt=('%d', '%10.6f', '%10.2f', '%10.2f', '%1.4e', '%1.4e', '%1.4e', '%10.6f', '%1.4e', '%10.6f'),
