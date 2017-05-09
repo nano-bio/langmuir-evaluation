@@ -25,10 +25,6 @@ parser.add_argument("--plot",
                     help="Specify an angle to be plotted in detail",
                     default=None,
                     type=int)
-parser.add_argument("--output",
-                    "-o",
-                    help="Specify a filename for the output data. Defaults to results.txt",
-                    default='results.txt')
 
 parser.add_argument("--probe_diameter",
                     "-pd",
@@ -47,7 +43,7 @@ args = parser.parse_args()
 
 angle_to_plot = int(args.plot)
 filename = args.filename
-output = args.output
+output = filename.split('.')[0] + '_results.txt'
 probe_diam = args.probe_diameter  # probe diameter in m
 probe_length = args.probe_length  # probe length in m
 
@@ -128,6 +124,10 @@ for i in np.arange(0, nom):
     # also delete first data point, because it is an artifact
     data[:, :, i] = np.delete(tempdata2[:, :, i], 0, axis=0)
 
+# sort array, in case the measurement software didn't save the points in order
+for i in np.arange(0, nom):
+    data[:, :, i] = data[data[:,0,i].argsort(), :, i]
+
 # absolute error values
 data[:, 2, :] = data[:, 1, :] * data[:, 2, :] / 100
 
@@ -200,10 +200,14 @@ for i in np.arange(0, nom):
     zerocrossingx = data[zerocrossingindex, 0, i] - 5
 
     # get the data points between max and min
-    fitrangex = data[np.where((data[:, 0, i] >= -40) & (data[:, 0, i] <= zerocrossingx)), 0, i][0]
-    fitrangey = data[np.where((data[:, 0, i] >= -40) & (data[:, 0, i] <= zerocrossingx)), 1, i][0]
+    try:
+        fitrangex = data[np.where((data[:, 0, i] >= -40) & (data[:, 0, i] <= zerocrossingx)), 0, i][0]
+        fitrangey = data[np.where((data[:, 0, i] >= -40) & (data[:, 0, i] <= zerocrossingx)), 1, i][0]
+    except ValueError:
+        print('Fucked up measurement at angle {}'.format(i + 1))
+        quit(-1)
     if fitrangex.shape[0] == 0:
-        print('No data points for linear fit between -40 and -10 V found for angle {}'.format(i))
+        print('No data points for linear fit between -40 and -10 V found for angle {}'.format(i + 1))
         continue  # we cannot use this angle
 
     ionsat[i] = np.poly1d(np.polyfit(fitrangex, fitrangey, 1))
@@ -265,7 +269,7 @@ for i in np.arange(0, nom):
         p1 = res.x
         fit_success = True
     except TypeError:
-        print('Warning: not enough fitting points between floating and plasma potential for angle {}'.format(i))
+        print('Warning: not enough fitting points between floating and plasma potential for angle {}'.format(i + 1))
         p1 = [None] * 4
 
     if fit_success:
