@@ -1,9 +1,22 @@
 import numpy as np
 import glob
 import os
+import argparse
 import matplotlib.pyplot as plt
 from scipy.interpolate import SmoothBivariateSpline, interp1d
 
+# using the argparse module to make use of command line options
+parser = argparse.ArgumentParser(description="2D plot script for langmuir measurements")
+
+# add commandline options
+parser.add_argument("--folder",
+                    "-f",
+                    help="Specify a folder of files to be evaluated")
+
+# parse it
+args = parser.parse_args()
+
+folder = args.folder
 
 def fill_nan(A):
     '''
@@ -17,30 +30,52 @@ def fill_nan(A):
 
 
 # column to plot
-plot_column = 5
+plot_column = 0
 
 # folder to read from
-fnames = glob.glob('results/*')
+fnames = glob.glob(os.path.join(os.path.normpath(folder), '*_results.txt'))
 
 # heights for files
 heights = [None] * len(fnames)
 
-# read first file to know dimensions
-temp_data = np.loadtxt(fnames[0], skiprows=1, dtype=np.float64)
+# look for the largest dataset
+x = 0
+y = 0
+for filename in fnames:
+    temp_data = np.loadtxt(filename, skiprows=1, dtype=np.float64)
+    print(temp_data.shape)
+    if temp_data.shape[0] > y:
+        y = temp_data.shape[0]
+    if temp_data.shape[1] > x:
+        x = temp_data.shape[1]
+
+print('Array size x: {} y: {}'.format(x, y))
 
 # create empty array
-data = np.zeros((temp_data.shape[0], temp_data.shape[1], len(fnames)), dtype=np.float64)
+data = np.zeros((y, x, len(fnames)), dtype=np.float64)
 
 # read files
 i = 0
 for filename in fnames:
     # check whether the file exists. if not, try to use it as a relative path.
     if not os.path.exists(filename):
-        filename = os.path.normcase(os.path.join(os.path.dirname(__file__), filename))
+        filename = os.path.normcase(os.path.join(os.path.dirname(__file__), folder, filename))
 
     # read heights from filename - currently windows specific
-    heights[i] = int(filename.split('.')[0].split('\\')[1])
-    data[:, :, i] = np.loadtxt(filename, skiprows=1, dtype=np.float64)
+    measurement_name = filename.split('_')[0]
+    if measurement_name[-2:-1] == '1':
+        heights[i] = 10
+    elif measurement_name[-2:-1] == '2':
+        heights[i] = 15
+    elif measurement_name[-2:-1] == '3':
+        heights[i] = 20
+    elif measurement_name[-2:-1] == '4':
+        heights[i] = 30
+    elif measurement_name[-2:-1] == '5':
+        heights[i] = 40
+
+    temp = np.loadtxt(filename, skiprows=1, dtype=np.float64)
+    data[0:temp.shape[0], :, i] = temp
     # interpolate nans in the row
     data[:, plot_column, i] = fill_nan(data[:, plot_column, i])
 
@@ -81,7 +116,7 @@ for y in ynew:
     i += 1
     j = 0
 
-plt.imshow(znew, interpolation='bicubic', origin='lower')
+plt.imshow(znew, interpolation='hamming', origin='lower')
 #
 plt.colorbar()
 plt.title('Plasma Potential')
