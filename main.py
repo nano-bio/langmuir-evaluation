@@ -6,11 +6,19 @@ from scipy import optimize
 import argparse
 import os
 
+# factor between eV and kelvin
+conv_fac_K_eV = physical_constants['electron volt-kelvin relationship'][0]
+
 # some general options
 
 # percentage of minimum electron temperature difference to consider them as two populations
 hot_cold_diff = 0.1
-hot_cold_population_diff = 1e15
+# abundance factor between the two population above which they should be combined.
+# higher means only one resulting population less often
+hot_cold_population_diff = 1e9
+# minimum temperature in eV below which a population should be neglected and the two populations combined.
+min_temp = 0.029 # room temperature
+min_temp *= conv_fac_K_eV
 
 # using the argparse module to make use of command line options
 parser = argparse.ArgumentParser(description="Evaluation script for langmuir measurements")
@@ -41,7 +49,10 @@ parser.add_argument("--probe_length",
 # parse it
 args = parser.parse_args()
 
-angle_to_plot = int(args.plot)
+if args.plot is not None:
+    angle_to_plot = int(args.plot)
+else:
+    angle_to_plot = None
 filename = args.filename
 output = filename.split('.')[0] + '_results.txt'
 probe_diam = args.probe_diameter  # probe diameter in m
@@ -293,16 +304,25 @@ for i in np.arange(0, nom):
         # calculate total electron density 
         electron_density[i] = n_cold + n_hot
 
-        # check whether the two electron temperature are within a small window or whether one population is much more
-        # abundante then the other. if so, we fit again with only one population.
-        if ((t_hot / t_cold < (1 + hot_cold_diff)) & (t_hot / t_cold > (1 - hot_cold_diff))) | ((n_cold/n_hot > hot_cold_population_diff) | (n_hot/n_cold > hot_cold_population_diff)):
+        # check whether the two electron temperature are
+        # 1) within a small window or
+        # 2) whether one population is much more abundant then the other. or
+        # 3) either of the temperatures is very small
+        # if any of that is the case, we fit again with only one population.
+        if ((t_hot / t_cold < (1 + hot_cold_diff)) & (t_hot / t_cold > (1 - hot_cold_diff))) | ((n_cold/n_hot > hot_cold_population_diff) | (n_hot/n_cold > hot_cold_population_diff)) | (t_cold < min_temp):
             print("Only one popuplation in angle {}:".format(i + 1))
             print('Old:\nT_cold: {} N_cold {}\nT_hot: {} N_hot {}'.format(t_cold, n_cold, t_hot, n_hot))
 
             # new guessed parameters
             p = [0] * 2
-            p[0] = (n_hot + n_cold) * 1e9 / np.sqrt(2 * pi * electron_mass / (Boltzmann * t_hot)) * (elementary_charge * probe_area)# fit should be around the sum of the two
-            p[1] = t_cold # temperatures are similar anyway
+            if t_cold < min_temp:
+                p[0] = n_hot * 1e9 / np.sqrt(
+                    2 * pi * electron_mass / (Boltzmann * t_hot)) * (
+                       elementary_charge * probe_area)  # fit should be around the sum of the two
+                p[1] = t_hot
+            else:
+                p[0] = (n_hot + n_cold) * 1e9 / np.sqrt(2 * pi * electron_mass / (Boltzmann * (n_hot*t_hot + n_cold*t_cold)/(n_hot+n_cold))) * (elementary_charge * probe_area)# fit should be around the sum of the two
+                p[1] = (n_hot*t_hot + n_cold*t_cold)/(n_hot+n_cold)
 
             bounds_lower = [0] * 2
             bounds_upper = [200, 1e8]
@@ -312,26 +332,45 @@ for i in np.arange(0, nom):
             res = optimize.least_squares(errfunc, np.asarray(p, dtype=np.float64), args=(x, y), bounds=(bounds_lower, bounds_upper))
             p1 = res.x
 
-            t_cold = p1[1]
-
-            n_cold = p1[0] / (elementary_charge * probe_area) * np.sqrt(
+            n_new = p1[0] / (elementary_charge * probe_area) * np.sqrt(
                 2 * pi * electron_mass / (Boltzmann * t_cold)) / 1000000000
+            t_new = p1[1]
 
-            print('New:\nT_cold: {} N_cold {}'.format(t_cold, n_cold))
+            print('New:\nT_cold: {} N_cold {}'.format(t_new, n_new))
 
-            # calculate total electron density
-            electron_density[i] = n_cold
+            # "calculate" total electron density
+            electron_density[i] = n_new
 
-            t_hot = None
-            n_hot = None
+            # in order to decide which population (hot, cold) the new fit belongs to, we calculate the median of the
+            # temperatures in both populations so far and simply compare the distance to either.
+            # this has the disadvantage of misassignments towards low angles when the statistics is not good yet.
+            # however, yields better results than always assigning to either hot or cold.
+
+            # uncomment to see population statistics so far
+            #print('Cold: {} +- {}'.format(np.nanmedian(temperatures[0:i-1,1]), np.nanstd(temperatures[0:i-1,1])))
+            #print('Hot: {} +- {}'.format(np.nanmedian(temperatures[0:i - 1, 0]), np.nanstd(temperatures[0:i - 1, 0])))
+            if np.abs(np.nanmedian(temperatures[0:i-1,1])-t_new / conv_fac_K_eV) > np.abs(np.nanmedian(temperatures[0:i-1,0])-t_new / conv_fac_K_eV):
+                # closer to hot
+                t_cold = None
+                n_cold = None
+                t_hot = t_new
+                n_hot = n_new
+            else:
+                # closer to cold
+                t_hot = None
+                n_hot = None
+                t_cold = t_new
+                n_cold = n_new
 
         temperatures[i, :] = [t_hot, t_cold, n_hot, n_cold]
 
         # calculate effective temperature according to http://dx.doi.org/10.1119/1.2772282
-        if t_hot is not None:
-            t_eff[i] = ((n_cold / (n_cold + n_hot)) * (1 / t_cold) + (n_hot / (n_cold + n_hot)) * (1 / t_hot)) ** (-1)
-        else:
+        if t_hot is not None and t_cold is None:
+            t_eff[i] = t_hot
+        elif t_hot is None and t_cold is not None:
             t_eff[i] = t_cold
+        else:
+            t_eff[i] = ((n_cold / (n_cold + n_hot)) * (1 / t_cold) + (n_hot / (n_cold + n_hot)) * (1 / t_hot)) ** (-1)
 
         # calculate ion density according to http://dx.doi.org/10.1116/1.1515800
         # factor 1000000000 because of mA current signal and m^-3 to cm^-3 
@@ -351,12 +390,11 @@ for i in np.arange(0, nom):
 
     if fit_success:
         # convert temperatures to eV
-        conversion_factor = physical_constants['electron volt-kelvin relationship'][0]
-        temperatures[i, 0] = temperatures[i, 0] / conversion_factor
-        temperatures[i, 1] = temperatures[i, 1] / conversion_factor
+        temperatures[i, 0] = temperatures[i, 0] / conv_fac_K_eV
+        temperatures[i, 1] = temperatures[i, 1] / conv_fac_K_eV
 
     # plot a dataset
-    if angle_to_plot:
+    if angle_to_plot is not None:
         if angle_to_plot - 1 == i:
             fig1 = plt.figure()
             ax0 = fig1.add_subplot(2, 1, 1)
