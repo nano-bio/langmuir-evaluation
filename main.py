@@ -45,6 +45,11 @@ parser.add_argument("--probe_length",
                     type=float,
                     help="Specify the length of the probe. Default is set to 0.003 m",
                     default=0.003)
+parser.add_argument("--upper_limit_vp_fit",
+                    "-ul",
+                    type=float,
+                    help="Specify the upper limit for the fitting routine. Default is set to None",
+                    default=None)
 
 # parse it
 args = parser.parse_args()
@@ -57,6 +62,7 @@ filename = args.filename
 output = filename.split('.')[0] + '_results.txt'
 probe_diam = args.probe_diameter  # probe diameter in m
 probe_length = args.probe_length  # probe length in m
+vp_upper_limit = args.upper_limit_vp_fit # define the upper limit for the fitting routine in Volt
 
 # area of the langmuir probe
 probe_area = probe_diam * pi * probe_length + probe_diam ** 2 * pi / 4  # in m^2
@@ -64,6 +70,9 @@ print('Langmuir probe geometry used for data evaluation:')
 print('probe diameter = {}'.format(probe_diam))
 print('probe length = {}'.format(probe_length))
 print('probe area = {}'.format(probe_area))
+
+# upper voltage limit for the fitting routine
+print('upper limit for fitting routine in Volt = {}'.format(vp_upper_limit))
 
 """
 Starting from here we set up some helper functions
@@ -176,13 +185,19 @@ for i in np.arange(0, nom):
     # second derivative and smooth this again
     za = savgol_filter(np.gradient(ea), 21, 2)
 
-    # this typically has a maximum, followed by a zero-crossing and a minimum
+    # this typically has a maximum (can be manually adjusted with vp_upper_limit), followed by a zero-crossing and a minimum
     # we search for the zero-crossing between the global maximum and minimum of the data, but not within 10% of the
     # border!
+
     tenpercent = int(np.round(lines / 10))
 
-    maximum = data[np.where(za == np.max(za[tenpercent:-tenpercent])), 0, i]
-    minimum = data[np.where(za == np.min(za[tenpercent:-tenpercent])), 0, i]
+    if vp_upper_limit is None:
+        maximum = data[np.where(za == np.max(za[tenpercent:-tenpercent])), 0, i]
+        minimum = data[np.where(za == np.min(za[tenpercent:-tenpercent])), 0, i]
+    else:
+        vp_upper_limit_index = np.argmax(data[:, 0, i] > vp_upper_limit)
+        maximum = data[np.where(za == np.max(za[tenpercent:vp_upper_limit_index])), 0, i]
+        minimum = data[np.where(za == np.min(za[tenpercent:vp_upper_limit_index])), 0, i]
 
     # get the data points between max and min
     fitrangex = data[np.where((data[:, 0, i] >= maximum) & (data[:, 0, i] <= minimum)), 0, i][1]
