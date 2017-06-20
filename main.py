@@ -167,6 +167,10 @@ vf = np.zeros((nom, 1), dtype=np.float64)
 eepf = [None] * nom
 # list for 1st order polynomial objects for ion saturation current
 ionsat = [None] * nom
+# list for errors of slope of ion saturation current
+ionsat_slope_error = [None] * nom
+# list for errors of intercept of ion saturation current
+ionsat_intercept_error = [None] * nom
 # numpy array for ion saturation current subtracted data
 data_is_subtracted = np.zeros((lines - 1, nom), dtype=np.float64)
 # preallocate array for electron temperatures (1 T_hot, 2 T_cold, 3 + 4 electron densities
@@ -229,6 +233,11 @@ for i in np.arange(0, nom):
     try:
         fitrangex = data[np.where((data[:, 0, i] >= -40) & (data[:, 0, i] <= zerocrossingx)), 0, i][0]
         fitrangey = data[np.where((data[:, 0, i] >= -40) & (data[:, 0, i] <= zerocrossingx)), 1, i][0]
+
+        # calculate weights: 1 / error^2
+        fiterrors = data[np.where((data[:, 0, i] >= -40) & (data[:, 0, i] <= zerocrossingx)), 2, i][0]
+        fitweights = 1/fiterrors**2
+
     except ValueError:
         print('Fucked up measurement at angle {}'.format(i + 1))
         quit(-1)
@@ -236,7 +245,9 @@ for i in np.arange(0, nom):
         print('No data points for linear fit between -40 and -10 V found for angle {}'.format(i + 1))
         continue  # we cannot use this angle
 
-    ionsat[i] = np.poly1d(np.polyfit(fitrangex, fitrangey, 1))
+    linfit, linfitcov = np.polyfit(fitrangex, fitrangey, 1, w = fitweights, cov = True)
+    ionsat[i] = np.poly1d(linfit)
+    ionsat_slope_error[i], ionsat_intercept_error[i] = np.diagonal(linfitcov)
     ionsatx = np.linspace(-40, zerocrossingx, 100)
 
     # create a new dataset, where we subtract the ion saturation current
