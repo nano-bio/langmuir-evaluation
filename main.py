@@ -163,6 +163,8 @@ vp = np.zeros((nom, 1), dtype=np.float64)
 fit_start = np.zeros((nom, 1), dtype=np.float64)
 # preallocate array for the floating potential
 vf = np.zeros((nom, 1), dtype=np.float64)
+# preallocate array for the floating potential limits
+vf_limits = np.zeros((2, nom), dtype=np.float64)
 # preallocate array for the EEPF
 eepf = [None] * nom
 # list for 1st order polynomial objects for ion saturation current
@@ -258,7 +260,7 @@ for i in np.arange(0, nom):
     data_is_subtracted[:, i] = np.apply_along_axis(subtract_ion_sat_current, 0, data[:, 0, i])
 
     # starting from here we fit electron temperatures and currents
-    errfunc = lambda p, x, y: ic_func(p, x) - y
+    errfunc = lambda p, x, y, yerr: (ic_func(p, x) - y)/yerr
 
     # starting values
     p = [0] * 4
@@ -299,10 +301,18 @@ for i in np.arange(0, nom):
     y_before_vf = data[index_before_vf, 1, i]
     vf[i] = x_before_vf - (vf_at_datapoint - x_before_vf) / (data[np.where(data[:, 0, i] == vf_at_datapoint), 1, i][0][0] - y_before_vf) * y_before_vf
 
+    # error limits. this is an estimation / limit for the error.
+    vf_at_datapoint_error = data[np.where(from_x_on_greater_than_zero(data[:, 1, i])), 2, i][0][0]
+    y_before_vf_error = data[index_before_vf, 2, i]
+    vf_limits[1,i] = x_before_vf - (vf_at_datapoint - vf_at_datapoint_error - x_before_vf) / (data[np.where(data[:, 0, i] == (vf_at_datapoint)), 1, i][0][0] - y_before_vf + y_before_vf_error) * (y_before_vf + y_before_vf_error)
+    vf_limits[0,i] = x_before_vf - (vf_at_datapoint + vf_at_datapoint_error - x_before_vf) / (data[np.where(data[:, 0, i] == (vf_at_datapoint)), 1, i][0][0] - y_before_vf - y_before_vf_error) * (y_before_vf - y_before_vf_error)
+    vf_limits[1, i] = np.subtract(vf_limits[1, i], vf[i])
+    vf_limits[0, i] = np.subtract(vf[i], vf_limits[0, i])
+
     # fit the data
     fit_success = False
     try:
-        res = optimize.least_squares(errfunc, np.asarray(p, dtype=np.float64), args=(x, y), bounds=(bounds_lower, bounds_upper))
+        res = optimize.least_squares(errfunc, np.asarray(p, dtype=np.float64), args=(x, y, yerr), bounds=(bounds_lower, bounds_upper))
         p1 = res.x
         fit_success = True
     except TypeError:
@@ -354,8 +364,8 @@ for i in np.arange(0, nom):
             bounds_upper = [200, 1e8]
 
             # new function with just one exponential
-            errfunc = lambda p, x, y: ic_func_single_temp(p, x) - y
-            res = optimize.least_squares(errfunc, np.asarray(p, dtype=np.float64), args=(x, y), bounds=(bounds_lower, bounds_upper))
+            errfunc = lambda p, x, y, yerr: (ic_func_single_temp(p, x) - y)/yerr
+            res = optimize.least_squares(errfunc, np.asarray(p, dtype=np.float64), args=(x, y, yerr), bounds=(bounds_lower, bounds_upper))
             p1 = res.x
 
             n_new = p1[0] / (elementary_charge * probe_area) * np.sqrt(
@@ -493,7 +503,7 @@ ax4.set_ylabel(r'$n_e (cm^{-3})$')
 ax4.legend([nhotplot, ncoldplot], ['Hot Electrons', 'Cold Electrons'])
 
 ax5 = fig2.add_subplot(234)
-ax5.plot(export_values[:, 0], export_values[:, 9], 'x')
+ax5.errorbar(export_values[:, 0], export_values[:, 9], fmt='x', yerr=vf_limits)
 ax5.set_title('Floating Potential')
 ax5.set_xlabel('Angle')
 ax5.set_ylabel(r'$V_f$ (V)')
