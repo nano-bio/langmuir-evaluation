@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.signal import savgol_filter
 from scipy.constants import Boltzmann, elementary_charge, pi, electron_mass, physical_constants
+from scipy.linalg import svd
 from scipy import optimize
 import argparse
 import os
@@ -92,6 +93,23 @@ def from_x_on_greater_than_zero(array):
     for j in np.arange(0, array.shape[0]):
         returnarray[j] = np.greater(array[j:], 0).all()
     return returnarray
+
+def calc_std_deviation(res):
+    """
+    Calculate the standard deviation from the Jacobian returned by the fit result.
+    From scipy: https://github.com/scipy/scipy/blob/11509c4a98edded6c59423ac44ca1b7f28fba1fd/scipy/optimize/minpack.py#L762
+    """
+
+    # Code from scipy
+    _, s, VT = svd(res.jac, full_matrices=False)
+    threshold = np.finfo(float).eps * max(res.jac.shape) * s[0]
+    s = s[s > threshold]
+    VT = VT[:s.size]
+    pcov = np.dot(VT.T / s**2, VT)
+
+    # Std-dev is sqrt of diagonal of covariance matrix
+    return np.sqrt(np.diag(pcov))
+
 
 
 # lambda to convert float with , as decimal point to real point
@@ -212,6 +230,8 @@ for i in np.arange(0, nom):
     # sometimes we hit the wrong interval. don't throw errors in that case and mark the measurement as untrusted
     try:
         # fit the range between max and min with a third order polynomial
+        # vpfit_full = np.polyfit(fitrangex, fitrangey, 3, cov=True)
+        # vp_cov = vpfit_full[1]
         vpfit = np.poly1d(np.polyfit(fitrangex, fitrangey, 3))
         vpfitx = np.linspace(maximum[0], minimum[0], 100)
     except Exception as e:
@@ -314,6 +334,8 @@ for i in np.arange(0, nom):
     try:
         res = optimize.least_squares(errfunc, np.asarray(p, dtype=np.float64), args=(x, y, yerr), bounds=(bounds_lower, bounds_upper))
         p1 = res.x
+        perr = calc_std_deviation(res)
+
         fit_success = True
     except TypeError:
         print('Warning: not enough fitting points between floating and plasma potential for angle {}'.format(i + 1))
@@ -324,7 +346,7 @@ for i in np.arange(0, nom):
         # if we happen to have only one electron temperature in the measurement, the fit converges to almost the same
         # electron temperature for t_hot and t_cold. hence we check, whether they are within a certain percentage of one
         # another and if so, we add the currents (as they are the same and save it as [t|n]_cold
-        # factor 1000000000 because of mA current signal and m^-3 to cm^-3 
+        # factor 1000000000 because of mA current signal and m^-3 to cm^-3
         t_cold = p1[1]
         t_hot = p1[3]
         n_cold = p1[0] / (elementary_charge * probe_area) * np.sqrt(
@@ -337,7 +359,7 @@ for i in np.arange(0, nom):
             t_cold, t_hot = t_hot, t_cold
             n_cold, n_hot = n_hot, n_cold
 
-        # calculate total electron density 
+        # calculate total electron density
         electron_density[i] = n_cold + n_hot
 
         # check whether the two electron temperature are
@@ -367,6 +389,7 @@ for i in np.arange(0, nom):
             errfunc = lambda p, x, y, yerr: (ic_func_single_temp(p, x) - y)/yerr
             res = optimize.least_squares(errfunc, np.asarray(p, dtype=np.float64), args=(x, y, yerr), bounds=(bounds_lower, bounds_upper))
             p1 = res.x
+            perr = calc_std_deviation(res)
 
             n_new = p1[0] / (elementary_charge * probe_area) * np.sqrt(
                 2 * pi * electron_mass / (Boltzmann * t_cold)) / 1000000000
@@ -409,7 +432,7 @@ for i in np.arange(0, nom):
             t_eff[i] = ((n_cold / (n_cold + n_hot)) * (1 / t_cold) + (n_hot / (n_cold + n_hot)) * (1 / t_hot)) ** (-1)
 
         # calculate ion density according to http://dx.doi.org/10.1116/1.1515800
-        # factor 1000000000 because of mA current signal and m^-3 to cm^-3 
+        # factor 1000000000 because of mA current signal and m^-3 to cm^-3
         mass_argon = 39.96238 * physical_constants['atomic mass constant'][0]
         ion_density[i] = np.abs(ionsat[i](vp[i])) / (0.6 * elementary_charge ** (3 / 2) * probe_area) * np.sqrt(
             elementary_charge * mass_argon / (Boltzmann * t_eff[i])) / 1000000000
